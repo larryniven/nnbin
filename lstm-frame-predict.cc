@@ -3,6 +3,7 @@
 #include "nn/lstm.h"
 #include "nn/pred.h"
 #include "nn/tensor_tree.h"
+#include "nn/lstm-frame.h"
 #include <fstream>
 
 struct prediction_env {
@@ -10,21 +11,16 @@ struct prediction_env {
     std::ifstream frame_batch;
 
     std::shared_ptr<tensor_tree::vertex> param;
-    lstm::stacked_bi_lstm_nn_t nn;
 
-    std::shared_ptr<tensor_tree::vertex> pred_param;
+    lstm::stacked_bi_lstm_nn_t nn;
     rnn::pred_nn_t pred_nn;
 
     int layer;
-    std::shared_ptr<tensor_tree::vertex> lstm_var_tree;
-    std::shared_ptr<tensor_tree::vertex> pred_var_tree;
+    std::shared_ptr<tensor_tree::vertex> var_tree;
 
     std::vector<std::string> label;
 
     double dropout;
-
-    int subsample_freq;
-    int subsample_shift;
 
     std::unordered_map<std::string, std::string> args;
 
@@ -44,12 +40,7 @@ int main(int argc, char *argv[])
             {"param", "", true},
             {"label", "", true},
             {"dropout", "", false},
-            {"light-dropout", "", false},
             {"logprob", "", false},
-            {"subsample-freq", "", false},
-            {"subsample-shift", "", false},
-            {"upsample", "", false},
-            {"clockwork", "", false},
         }
     };
 
@@ -81,27 +72,14 @@ prediction_env::prediction_env(std::unordered_map<std::string, std::string> args
     std::string line;
     std::getline(param_ifs, line);
     layer = std::stoi(line);
-
-    param = lstm::make_stacked_bi_lstm_tensor_tree(layer);
+    param = lstm_frame::make_tensor_tree(layer);
     tensor_tree::load_tensor(param, param_ifs);
-
-    pred_param = nn::make_pred_tensor_tree();
-    tensor_tree::load_tensor(pred_param, param_ifs);
     param_ifs.close();
 
     label = speech::load_label_set(args.at("label"));
 
     if (ebt::in(std::string("dropout"), args)) {
         dropout = std::stod(args.at("dropout"));
-    }
-
-    subsample_freq = 1;
-    if (ebt::in(std::string("subsample-freq"), args)) {
-        subsample_freq = std::stoi(args.at("subsample-freq"));
-    }
-
-    if (ebt::in(std::string("subsample-shift"), args)) {
-        subsample_shift = std::stoi(args.at("subsample-shift"));
     }
 }
 
@@ -125,80 +103,29 @@ void prediction_env::run()
             inputs.push_back(graph.var(la::vector<double>(frames[i])));
         }
 
-        if (subsample_freq > 1) {
-            inputs = lstm::subsample(inputs, subsample_freq, subsample_shift);
-        }
-
-        lstm_var_tree = tensor_tree::make_var_tree(graph, param);
-        pred_var_tree = tensor_tree::make_var_tree(graph, pred_param);
+        var_tree = tensor_tree::make_var_tree(graph, param);
 
         lstm::lstm_builder *builder;
 
-        if (ebt::in(std::string("clockwork"), args)) {
-            la::vector<double> one_vec;
-            one_vec.resize(tensor_tree::get_matrix(param->children[0]->children[0]->children[0]).rows(), 1);
-            std::shared_ptr<autodiff::op_t> one = graph.var(one_vec);
-
-            std::vector<std::shared_ptr<autodiff::op_t>> mask;
-
-            for (int i = 0; i < inputs.size(); ++i) {
-                la::vector<double> mask_vec;
-                mask_vec.resize(one_vec.size());
-
-                for (int d = 0; d < mask_vec.size(); ++d) {
-                    if (d < mask_vec.size() / 2.0) {
-                        mask_vec(d) = 0;
-                    } else if (mask_vec.size() / 2.0 <= d && d < mask_vec.size() * 3 / 4.0) {
-                        if (i % 2 == 0) {
-                            mask_vec(d) = 0;
-                        } else {
-                            mask_vec(d) = 1;
-                        }
-                    } else {
-                        if (i % 4 == 0) {
-                            mask_vec(d) = 0;
-                        } else {
-                            mask_vec(d) = 1;
-                        }
-                    }
-                }
-
-                mask.push_back(graph.var(mask_vec));
-            }
-
-            builder = new lstm::zoneout_lstm_builder { mask, one };
-        } else {
-            builder = new lstm::lstm_builder{};
-        }
+        builder = new lstm::lstm_builder{};
 
         if (ebt::in(std::string("dropout"), args)) {
-            if (ebt::in(std::string("light-dropout"), args)) {
-                nn = lstm::make_stacked_bi_lstm_nn_with_dropout_light(
-                    graph, lstm_var_tree, inputs, *builder, dropout);
-            } else {
-                nn = lstm::make_stacked_bi_lstm_nn_with_dropout(
-                    graph, lstm_var_tree, inputs, *builder, dropout);
-            }
+            nn = lstm::make_stacked_bi_lstm_nn_with_dropout(
+                graph, var_tree->children[0], inputs, *builder, dropout);
         } else {
-            nn = lstm::make_stacked_bi_lstm_nn(lstm_var_tree, inputs, *builder);
+            nn = lstm::make_stacked_bi_lstm_nn(var_tree->children[0], inputs, *builder);
         }
 
-        pred_nn = rnn::make_pred_nn(pred_var_tree, nn.layer.back().output);
+        pred_nn = rnn::make_pred_nn(var_tree->children[1], nn.layer.back().output);
 
-        std::vector<std::shared_ptr<autodiff::op_t>> logprobs = pred_nn.logprob;
-
-        if (ebt::in(std::string("upsample"), args)) {
-            logprobs = lstm::upsample(pred_nn.logprob, subsample_freq, subsample_shift, frames.size());
-        }
-
-        auto topo_order = autodiff::topo_order(logprobs);
+        auto topo_order = autodiff::topo_order(pred_nn.logprob);
         autodiff::eval(topo_order, autodiff::eval_funcs);
 
         std::cout << i << ".phn" << std::endl;
 
         if (ebt::in(std::string("logprob"), args)) {
-            for (int t = 0; t < logprobs.size(); ++t) {
-                auto& pred = autodiff::get_output<la::vector<double>>(logprobs[t]);
+            for (int t = 0; t < pred_nn.logprob.size(); ++t) {
+                auto& pred = autodiff::get_output<la::vector<double>>(pred_nn.logprob[t]);
 
                 std::cout << pred(0);
 
@@ -209,8 +136,8 @@ void prediction_env::run()
                 std::cout << std::endl;
             }
         } else {
-            for (int t = 0; t < logprobs.size(); ++t) {
-                auto& pred = autodiff::get_output<la::vector<double>>(logprobs[t]);
+            for (int t = 0; t < pred_nn.logprob.size(); ++t) {
+                auto& pred = autodiff::get_output<la::vector<double>>(pred_nn.logprob[t]);
 
                 int argmax = -1;
                 double max = -std::numeric_limits<double>::infinity();

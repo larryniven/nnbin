@@ -10,6 +10,7 @@
 #include "nn/nn.h"
 #include <random>
 #include "nn/tensor_tree.h"
+#include "nn/lstm-frame.h"
 
 struct learning_env {
 
@@ -17,17 +18,10 @@ struct learning_env {
     std::ifstream label_batch;
 
     std::shared_ptr<tensor_tree::vertex> param;
-    std::shared_ptr<tensor_tree::vertex> opt_data;
-    std::shared_ptr<tensor_tree::vertex> param_first_moment;
-    std::shared_ptr<tensor_tree::vertex> param_second_moment;
 
-    std::shared_ptr<tensor_tree::vertex> pred_param;
-    std::shared_ptr<tensor_tree::vertex> pred_opt_data;
-    std::shared_ptr<tensor_tree::vertex> pred_first_moment;
-    std::shared_ptr<tensor_tree::vertex> pred_second_moment;
+    std::shared_ptr<tensor_tree::optimizer> opt;
 
-    std::shared_ptr<tensor_tree::vertex> lstm_var_tree;
-    std::shared_ptr<tensor_tree::vertex> pred_var_tree;
+    std::shared_ptr<tensor_tree::vertex> var_tree;
 
     int layer;
 
@@ -47,10 +41,6 @@ struct learning_env {
 
     double clip;
 
-    int subsample_freq;
-    int subsample_shift;
-
-    int time;
     double adam_beta1;
     double adam_beta2;
 
@@ -86,12 +76,8 @@ int main(int argc, char *argv[])
             {"ignored", "", false},
             {"dropout", "", false},
             {"dropout-seed", "", false},
-            {"light-dropout", "", false},
-            {"subsample-freq", "", false},
-            {"subsample-shift", "", false},
             {"adam-beta1", "", false},
             {"adam-beta2", "", false},
-            {"clockwork", "", false}
         }
     };
 
@@ -125,34 +111,9 @@ learning_env::learning_env(std::unordered_map<std::string, std::string> args)
     std::ifstream param_ifs { args.at("param") };
     std::getline(param_ifs, line);
     layer = std::stoi(line);
-
-    param = lstm::make_stacked_bi_lstm_tensor_tree(layer);
+    param = lstm_frame::make_tensor_tree(layer);
     tensor_tree::load_tensor(param, param_ifs);
-    pred_param = nn::make_pred_tensor_tree();
-    tensor_tree::load_tensor(pred_param, param_ifs);
     param_ifs.close();
-
-    std::ifstream opt_data_ifs { args.at("opt-data") };
-    std::getline(opt_data_ifs, line);
-
-    if (ebt::in(std::string("adam-beta1"), args)) {
-        time = std::stoi(line);
-        std::getline(opt_data_ifs, line);
-        param_first_moment = lstm::make_stacked_bi_lstm_tensor_tree(layer);
-        tensor_tree::load_tensor(param_first_moment, opt_data_ifs);
-        param_second_moment = lstm::make_stacked_bi_lstm_tensor_tree(layer);
-        tensor_tree::load_tensor(param_second_moment, opt_data_ifs);
-        pred_first_moment = nn::make_pred_tensor_tree();
-        tensor_tree::load_tensor(pred_first_moment, opt_data_ifs);
-        pred_second_moment = nn::make_pred_tensor_tree();
-        tensor_tree::load_tensor(pred_second_moment, opt_data_ifs);
-    } else {
-        opt_data = lstm::make_stacked_bi_lstm_tensor_tree(layer);
-        tensor_tree::load_tensor(opt_data, opt_data_ifs);
-        pred_opt_data = nn::make_pred_tensor_tree();
-        tensor_tree::load_tensor(pred_opt_data, opt_data_ifs);
-    }
-    opt_data_ifs.close();
 
     if (ebt::in(std::string("save-every"), args)) {
         save_every = std::stoi(args.at("save-every"));
@@ -199,15 +160,6 @@ learning_env::learning_env(std::unordered_map<std::string, std::string> args)
         dropout_seed = std::stoi(args.at("dropout-seed"));
     }
 
-    subsample_freq = 1;
-    if (ebt::in(std::string("subsample-freq"), args)) {
-        subsample_freq = std::stoi(args.at("subsample-freq"));
-    }
-
-    if (ebt::in(std::string("subsample-shift"), args)) {
-        subsample_shift = std::stoi(args.at("subsample-shift"));
-    }
-
     if (ebt::in(std::string("adam-beta1"), args)) {
         adam_beta1 = std::stod(args.at("adam-beta1"));
     }
@@ -215,6 +167,21 @@ learning_env::learning_env(std::unordered_map<std::string, std::string> args)
     if (ebt::in(std::string("adam-beta2"), args)) {
         adam_beta2 = std::stod(args.at("adam-beta2"));
     }
+
+    if (ebt::in(std::string("decay"), args)) {
+        opt = std::make_shared<tensor_tree::rmsprop_opt>(
+            tensor_tree::rmsprop_opt(param, decay, step_size));
+    } else if (ebt::in(std::string("adam-beta1"), args)) {
+        opt = std::make_shared<tensor_tree::adam_opt>(
+            tensor_tree::adam_opt(param, step_size, adam_beta1, adam_beta2));
+    } else {
+        opt = std::make_shared<tensor_tree::adagrad_opt>(
+            tensor_tree::adagrad_opt(param, step_size));
+    }
+
+    std::ifstream opt_data_ifs { args.at("opt-data") };
+    opt->load_opt_data(opt_data_ifs);
+    opt_data_ifs.close();
 }
 
 void learning_env::run()
@@ -245,164 +212,68 @@ void learning_env::run()
             inputs.push_back(graph.var(la::vector<double>(frames[i])));
         }
 
-        if (subsample_freq > 1) {
-            inputs = lstm::subsample(inputs, subsample_freq, subsample_shift);
-        }
-
-        lstm_var_tree = tensor_tree::make_var_tree(graph, param);
-        pred_var_tree = tensor_tree::make_var_tree(graph, pred_param);
+        var_tree = tensor_tree::make_var_tree(graph, param);
 
         lstm::lstm_builder *builder;
 
-        if (ebt::in(std::string("clockwork"), args)) {
-            la::vector<double> one_vec;
-            one_vec.resize(tensor_tree::get_matrix(param->children[0]->children[0]->children[0]).rows(), 1);
-            std::shared_ptr<autodiff::op_t> one = graph.var(one_vec);
-
-            std::vector<std::shared_ptr<autodiff::op_t>> mask;
-
-            for (int i = 0; i < inputs.size(); ++i) {
-                la::vector<double> mask_vec;
-                mask_vec.resize(one_vec.size());
-
-                for (int d = 0; d < mask_vec.size(); ++d) {
-                    if (d < mask_vec.size() / 2.0) {
-                        mask_vec(d) = 0;
-                    } else if (mask_vec.size() / 2.0 <= d && d < mask_vec.size() * 3 / 4.0) {
-                        if (i % 2 == 0) {
-                            mask_vec(d) = 0;
-                        } else {
-                            mask_vec(d) = 1;
-                        }
-                    } else {
-                        if (i % 4 == 0) {
-                            mask_vec(d) = 0;
-                        } else {
-                            mask_vec(d) = 1;
-                        }
-                    }
-                }
-
-                mask.push_back(graph.var(mask_vec));
-            }
-
-            builder = new lstm::zoneout_lstm_builder { mask, one };
-        } else {
-            builder = new lstm::lstm_builder{};
-        }
+        builder = new lstm::lstm_builder{};
 
         if (ebt::in(std::string("dropout"), args)) {
-            if (ebt::in(std::string("light-dropout"), args)) {
-                nn = lstm::make_stacked_bi_lstm_nn_with_dropout_light(
-                    graph, lstm_var_tree, inputs, *builder, gen, dropout);
-            } else {
-                nn = lstm::make_stacked_bi_lstm_nn_with_dropout(
-                    graph, lstm_var_tree, inputs, *builder, gen, dropout);
-            }
+            nn = lstm::make_stacked_bi_lstm_nn_with_dropout(
+                graph, var_tree->children[0], inputs, *builder, gen, dropout);
         } else {
-            nn = lstm::make_stacked_bi_lstm_nn(lstm_var_tree, inputs, *builder);
+            nn = lstm::make_stacked_bi_lstm_nn(var_tree->children[0], inputs, *builder);
         }
 
-        pred_nn = rnn::make_pred_nn(pred_var_tree, nn.layer.back().output);
+        pred_nn = rnn::make_pred_nn(var_tree->children[1], nn.layer.back().output);
 
         double loss_sum = 0;
         double nframes = 0;
 
-        if (ebt::in(std::string("upsample"), args)) {
-            std::vector<std::shared_ptr<autodiff::op_t>> logprobs
-                = lstm::upsample(pred_nn.logprob, subsample_freq, subsample_shift, labels.size());
+        auto topo_order = autodiff::topo_order(pred_nn.logprob);
+        autodiff::eval(topo_order, autodiff::eval_funcs);
 
-            auto topo_order = autodiff::topo_order(logprobs);
-            autodiff::eval(topo_order, autodiff::eval_funcs);
-
-            assert(labels.size() == logprobs.size());
-
-            for (int t = 0; t < labels.size(); ++t) {
-                auto& pred = autodiff::get_output<la::vector<double>>(logprobs[t]);
-                la::vector<double> gold;
-                gold.resize(label_id.size());
-                if (!ebt::in(labels[t], ignored)) {
-                    gold(label_id.at(labels[t])) = 1;
-                }
-                nn::log_loss loss { gold, pred };
-                logprobs[t]->grad = std::make_shared<la::vector<double>>(loss.grad());
-                if (std::isnan(loss.loss())) {
-                    std::cerr << "loss is nan" << std::endl;
-                    exit(1);
-                } else {
-                    loss_sum += loss.loss();
-                    nframes += 1;
-                }
+        for (int t = 0; t < labels.size(); ++t) {
+            auto& pred = autodiff::get_output<la::vector<double>>(pred_nn.logprob[t]);
+            la::vector<double> gold;
+            gold.resize(label_id.size());
+            if (!ebt::in(labels[t], ignored)) {
+                gold(label_id.at(labels[t])) = 1;
             }
-
-            autodiff::grad(topo_order, autodiff::grad_funcs);
-        } else {
-            std::vector<std::shared_ptr<autodiff::op_t>> logprobs = pred_nn.logprob;
-
-            auto topo_order = autodiff::topo_order(logprobs);
-            autodiff::eval(topo_order, autodiff::eval_funcs);
-
-            std::vector<std::string> subsampled_labels
-                = lstm::subsample(labels, subsample_freq, subsample_shift);
-
-            assert(subsampled_labels.size() == logprobs.size());
-
-            for (int t = 0; t < subsampled_labels.size(); ++t) {
-                auto& pred = autodiff::get_output<la::vector<double>>(logprobs[t]);
-                la::vector<double> gold;
-                gold.resize(label_id.size());
-                if (!ebt::in(subsampled_labels[t], ignored)) {
-                    gold(label_id.at(subsampled_labels[t])) = 1;
-                }
-                nn::log_loss loss { gold, pred };
-                logprobs[t]->grad = std::make_shared<la::vector<double>>(loss.grad());
-                if (std::isnan(loss.loss())) {
-                    std::cerr << "loss is nan" << std::endl;
-                    exit(1);
-                } else {
-                    loss_sum += loss.loss();
-                    nframes += 1;
-                }
+            nn::log_loss loss { gold, pred };
+            pred_nn.logprob[t]->grad = std::make_shared<la::vector<double>>(loss.grad());
+            if (std::isnan(loss.loss())) {
+                std::cerr << "loss is nan" << std::endl;
+                exit(1);
+            } else {
+                loss_sum += loss.loss();
+                nframes += 1;
             }
-
-            autodiff::grad(topo_order, autodiff::grad_funcs);
         }
+
+        autodiff::grad(topo_order, autodiff::grad_funcs);
 
         std::cout << "loss: " << loss_sum / nframes << std::endl;
 
-        std::shared_ptr<tensor_tree::vertex> grad = lstm::make_stacked_bi_lstm_tensor_tree(layer);
-        tensor_tree::copy_grad(grad, lstm_var_tree);
-        std::shared_ptr<tensor_tree::vertex> pred_grad = nn::make_pred_tensor_tree();
-        tensor_tree::copy_grad(pred_grad, pred_var_tree);
+        std::shared_ptr<tensor_tree::vertex> grad = lstm_frame::make_tensor_tree(layer);
+        tensor_tree::copy_grad(grad, var_tree);
+
+        double n = tensor_tree::norm(grad);
+
+        std::cout << "norm: " << n << std::endl;
 
         if (ebt::in(std::string("clip"), args)) {
-            double n1 = tensor_tree::norm(grad);
-            double n2 = tensor_tree::norm(pred_grad);
-            double n = std::sqrt(n1 * n1 + n2 * n2);
-
             if (n > clip) {
                 tensor_tree::imul(grad, clip / n);
-                tensor_tree::imul(pred_grad, clip / n);
-                std::cout << "norm: " << n << " clip: " << clip << " gradient clipped" << std::endl;
+                std::cout << "gradient clipped" << std::endl;
             }
         }
 
-        double v1 = tensor_tree::get_matrix(param->children[0]->children[0]->children[0])(0, 0);
+        double v1 = tensor_tree::get_matrix(param->children[0]->children[0]->children[0]->children[0])(0, 0);
 
-        if (ebt::in(std::string("decay"), args)) {
-            tensor_tree::rmsprop_update(param, grad, opt_data, decay, step_size);
-            tensor_tree::rmsprop_update(pred_param, pred_grad, pred_opt_data, decay, step_size);
-        } if (ebt::in(std::string("adam-beta1"), args)) {
-            tensor_tree::adam_update(param, grad, param_first_moment, param_second_moment,
-                time, step_size, adam_beta1, adam_beta2);
-            tensor_tree::adam_update(pred_param, pred_grad, pred_first_moment, pred_second_moment,
-                time, step_size, adam_beta1, adam_beta2);
-        } else {
-            tensor_tree::adagrad_update(param, grad, opt_data, step_size);
-            tensor_tree::adagrad_update(pred_param, pred_grad, pred_opt_data, step_size);
-        }
+        opt->update(grad);
 
-        double v2 = tensor_tree::get_matrix(param->children[0]->children[0]->children[0])(0, 0);
+        double v2 = tensor_tree::get_matrix(param->children[0]->children[0]->children[0]->children[0])(0, 0);
 
         std::cout << "weight: " << v1 << " update: " << v2 - v1 << " rate: " << (v2 - v1) / v1 << std::endl;
 
@@ -410,25 +281,11 @@ void learning_env::run()
             std::ofstream param_ofs { "param-last" };
             param_ofs << layer << std::endl;
             tensor_tree::save_tensor(param, param_ofs);
-            tensor_tree::save_tensor(pred_param, param_ofs);
             param_ofs.close();
 
-            if (ebt::in(std::string("adam-beta1"), args)) {
-                std::ofstream opt_data_ofs { "opt-data-last" };
-                opt_data_ofs << time << std::endl;
-                opt_data_ofs << layer << std::endl;
-                tensor_tree::save_tensor(param_first_moment, opt_data_ofs);
-                tensor_tree::save_tensor(param_second_moment, opt_data_ofs);
-                tensor_tree::save_tensor(pred_first_moment, opt_data_ofs);
-                tensor_tree::save_tensor(pred_second_moment, opt_data_ofs);
-                opt_data_ofs.close();
-            } else {
-                std::ofstream opt_data_ofs { "opt-data-last" };
-                opt_data_ofs << layer << std::endl;
-                tensor_tree::save_tensor(opt_data, opt_data_ofs);
-                tensor_tree::save_tensor(pred_opt_data, opt_data_ofs);
-                opt_data_ofs.close();
-            }
+            std::ofstream opt_data_ofs { "opt-data-last" };
+            opt->save_opt_data(opt_data_ofs);
+            opt_data_ofs.close();
         }
 
 #if DEBUG_TOP
@@ -440,30 +297,15 @@ void learning_env::run()
         delete builder;
 
         ++i;
-        ++time;
     }
 
     std::ofstream param_ofs { output_param };
     param_ofs << layer << std::endl;
     tensor_tree::save_tensor(param, param_ofs);
-    tensor_tree::save_tensor(pred_param, param_ofs);
     param_ofs.close();
 
-    if (ebt::in(std::string("adam-beta1"), args)) {
-        std::ofstream opt_data_ofs { output_opt_data };
-        opt_data_ofs << time << std::endl;
-        opt_data_ofs << layer << std::endl;
-        tensor_tree::save_tensor(param_first_moment, opt_data_ofs);
-        tensor_tree::save_tensor(param_second_moment, opt_data_ofs);
-        tensor_tree::save_tensor(pred_first_moment, opt_data_ofs);
-        tensor_tree::save_tensor(pred_second_moment, opt_data_ofs);
-        opt_data_ofs.close();
-    } else {
-        std::ofstream opt_data_ofs { output_opt_data };
-        opt_data_ofs << layer << std::endl;
-        tensor_tree::save_tensor(opt_data, opt_data_ofs);
-        tensor_tree::save_tensor(pred_opt_data, opt_data_ofs);
-        opt_data_ofs.close();
-    }
+    std::ofstream opt_data_ofs { output_opt_data };
+    opt->save_opt_data(opt_data_ofs);
+    opt_data_ofs.close();
 }
 
