@@ -1,8 +1,7 @@
 #include "ebt/ebt.h"
 #include "speech/speech.h"
 #include "nn/lstm.h"
-#include "nn/pred.h"
-#include "nn/tensor_tree.h"
+#include "nn/tensor-tree.h"
 #include "nn/lstm-frame.h"
 #include <fstream>
 
@@ -12,15 +11,10 @@ struct prediction_env {
 
     std::shared_ptr<tensor_tree::vertex> param;
 
-    lstm::stacked_bi_lstm_nn_t nn;
-    rnn::pred_nn_t pred_nn;
-
     int layer;
     std::shared_ptr<tensor_tree::vertex> var_tree;
 
     std::vector<std::string> label;
-
-    double dropout;
 
     std::unordered_map<std::string, std::string> args;
 
@@ -33,13 +27,12 @@ struct prediction_env {
 int main(int argc, char *argv[])
 {
     ebt::ArgumentSpec spec {
-        "predict-lstm",
+        "frame-lstm-predict",
         "Predict frames with LSTM",
         {
             {"frame-batch", "", true},
             {"param", "", true},
             {"label", "", true},
-            {"dropout", "", false},
             {"logprob", "", false},
         }
     };
@@ -77,15 +70,11 @@ prediction_env::prediction_env(std::unordered_map<std::string, std::string> args
     param_ifs.close();
 
     label = speech::load_label_set(args.at("label"));
-
-    if (ebt::in(std::string("dropout"), args)) {
-        dropout = std::stod(args.at("dropout"));
-    }
 }
 
 void prediction_env::run()
 {
-    int i = 1;
+    int nsample = 1;
 
     while (1) {
         std::vector<std::vector<double>> frames;
@@ -105,46 +94,52 @@ void prediction_env::run()
 
         var_tree = tensor_tree::make_var_tree(graph, param);
 
-        lstm::lstm_builder *builder;
+        std::shared_ptr<lstm::lstm_step_transcriber> step
+            = std::make_shared<lstm::dyer_lstm_step_transcriber>(lstm::dyer_lstm_step_transcriber{});
 
-        builder = new lstm::lstm_builder{};
+        std::shared_ptr<lstm::layered_transcriber> layered_trans
+            = std::make_shared<lstm::layered_transcriber>(lstm::layered_transcriber {});
 
-        if (ebt::in(std::string("dropout"), args)) {
-            nn = lstm::make_stacked_bi_lstm_nn_with_dropout(
-                graph, var_tree->children[0], inputs, *builder, dropout);
-        } else {
-            nn = lstm::make_stacked_bi_lstm_nn(var_tree->children[0], inputs, *builder);
+        for (int i = 0; i < layer; ++i) {
+            layered_trans->layer.push_back(
+                std::make_shared<lstm::bi_transcriber>(lstm::bi_transcriber{
+                    std::make_shared<lstm::lstm_transcriber>(lstm::lstm_transcriber{step})
+                }));
         }
 
-        pred_nn = rnn::make_pred_nn(var_tree->children[1], nn.layer.back().output);
+        std::shared_ptr<lstm::transcriber> trans
+            = std::make_shared<lstm::logsoftmax_transcriber>(
+            lstm::logsoftmax_transcriber { layered_trans });
 
-        auto topo_order = autodiff::topo_order(pred_nn.logprob);
+        std::vector<std::shared_ptr<autodiff::op_t>> logprob = (*trans)(var_tree, inputs);
+
+        auto topo_order = autodiff::topo_order(logprob);
         autodiff::eval(topo_order, autodiff::eval_funcs);
 
-        std::cout << i << ".phn" << std::endl;
+        std::cout << nsample << ".phn" << std::endl;
 
         if (ebt::in(std::string("logprob"), args)) {
-            for (int t = 0; t < pred_nn.logprob.size(); ++t) {
-                auto& pred = autodiff::get_output<la::vector<double>>(pred_nn.logprob[t]);
+            for (int t = 0; t < logprob.size(); ++t) {
+                auto& pred = autodiff::get_output<la::tensor_like<double>>(logprob[t]);
 
-                std::cout << pred(0);
+                std::cout << pred({0});
 
-                for (int j = 1; j < pred.size(); ++j) {
-                    std::cout << " " << pred(j);
+                for (int j = 1; j < pred.vec_size(); ++j) {
+                    std::cout << " " << pred({j});
                 }
 
                 std::cout << std::endl;
             }
         } else {
-            for (int t = 0; t < pred_nn.logprob.size(); ++t) {
-                auto& pred = autodiff::get_output<la::vector<double>>(pred_nn.logprob[t]);
+            for (int t = 0; t < logprob.size(); ++t) {
+                auto& pred = autodiff::get_output<la::tensor_like<double>>(logprob[t]);
 
                 int argmax = -1;
                 double max = -std::numeric_limits<double>::infinity();
 
-                for (int j = 0; j < pred.size(); ++j) {
-                    if (pred(j) > max) {
-                        max = pred(j);
+                for (int j = 0; j < pred.vec_size(); ++j) {
+                    if (pred({j}) > max) {
+                        max = pred({j});
                         argmax = j;
                     }
                 }
@@ -155,9 +150,7 @@ void prediction_env::run()
 
         std::cout << "." << std::endl;
 
-        delete builder;
-
-        ++i;
+        ++nsample;
     }
 }
 

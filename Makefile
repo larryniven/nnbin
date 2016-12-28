@@ -6,8 +6,8 @@ bin = \
     learn \
     predict \
     loss-lstm \
-    lstm-frame-learn \
-    lstm-frame-predict \
+    frame-lstm-learn \
+    frame-lstm-predict \
     learn-gru \
     predict-gru \
     learn-residual \
@@ -36,10 +36,10 @@ learn: learn.o
 predict: predict.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lopt -lla -lebt -lblas
 
-lstm-frame-learn: lstm-frame-learn.o
+frame-lstm-learn: frame-lstm-learn.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
 
-lstm-frame-predict: lstm-frame-predict.o
+frame-lstm-predict: frame-lstm-predict.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
 
 loss-lstm: loss-lstm.o
