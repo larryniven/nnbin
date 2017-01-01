@@ -5,9 +5,11 @@ CXXFLAGS += -std=c++11 -I .. -L ../ebt -L ../la -L ../opt -L ../autodiff -L ../n
 bin = \
     learn \
     predict \
-    loss-lstm \
     frame-lstm-learn \
     frame-lstm-predict \
+    loss-lstm \
+    frame-cnn-learn \
+    frame-cnn-predict \
     learn-gru \
     predict-gru \
     learn-residual \
@@ -43,6 +45,12 @@ frame-lstm-predict: frame-lstm-predict.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
 
 loss-lstm: loss-lstm.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
+
+frame-cnn-learn: frame-cnn-learn.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
+
+frame-cnn-predict: frame-cnn-predict.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
 
 learn-gru: learn-gru.o
