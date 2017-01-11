@@ -161,8 +161,8 @@ void prediction_env::run()
             logprob.push_back(autodiff::logsoftmax(
                 autodiff::add(
                     autodiff::mul(feat_t,
-                        tensor_tree::get_var(var_tree->children[fc_layer - 1]->children[0])),
-                    tensor_tree::get_var(var_tree->children[fc_layer - 1]->children[1])
+                        tensor_tree::get_var(var_tree->children[fc_layer]->children[0])),
+                    tensor_tree::get_var(var_tree->children[fc_layer]->children[1])
                 )
             ));
         }
