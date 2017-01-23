@@ -10,6 +10,7 @@ bin = \
     loss-lstm \
     frame-cnn-learn \
     frame-cnn-predict \
+    frame-hypercolumn-learn \
     learn-gru \
     predict-gru \
     learn-residual \
@@ -24,7 +25,9 @@ bin = \
     lstm-seg-logp-learn \
     lstm-seg-logp-predict \
     rhn-learn \
-    rhn-predict
+    rhn-predict \
+    rsg-learn \
+    rsg-predict
 
 all: $(bin)
 
@@ -51,6 +54,9 @@ frame-cnn-learn: frame-cnn-learn.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
 
 frame-cnn-predict: frame-cnn-predict.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
+
+frame-hypercolumn-learn: frame-hypercolumn-learn.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
 
 learn-gru: learn-gru.o
@@ -96,5 +102,11 @@ rhn-learn: rhn-learn.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
 
 rhn-predict: rhn-predict.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
+
+rsg-learn: rsg-learn.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
+
+rsg-predict: rsg-predict.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
 
