@@ -11,6 +11,9 @@ bin = \
     frame-cnn-learn \
     frame-cnn-predict \
     frame-hypercolumn-learn \
+    frame-hypercolumn-predict \
+    frame-pyramid-learn \
+    frame-pyramid-predict \
     learn-gru \
     predict-gru \
     learn-residual \
@@ -57,6 +60,15 @@ frame-cnn-predict: frame-cnn-predict.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
 
 frame-hypercolumn-learn: frame-hypercolumn-learn.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
+
+frame-hypercolumn-predict: frame-hypercolumn-predict.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
+
+frame-pyramid-learn: frame-pyramid-learn.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
+
+frame-pyramid-predict: frame-pyramid-predict.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
 
 learn-gru: learn-gru.o

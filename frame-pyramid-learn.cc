@@ -52,8 +52,8 @@ struct learning_env {
 int main(int argc, char *argv[])
 {
     ebt::ArgumentSpec spec {
-        "frame-hypercolumn-learn",
-        "Train a hypercolumn LSTM frame classifier",
+        "frame-pyramid-learn",
+        "Train a pyramid LSTM frame classifier",
         {
             {"frame-batch", "", true},
             {"label-batch", "", true},
@@ -103,7 +103,7 @@ learning_env::learning_env(std::unordered_map<std::string, std::string> args)
     std::ifstream param_ifs { args.at("param") };
     std::getline(param_ifs, line);
     layer = std::stoi(line);
-    param = lstm_frame::make_hypercolumn_tensor_tree(layer);
+    param = lstm_frame::make_tensor_tree(layer);
     tensor_tree::load_tensor(param, param_ifs);
     param_ifs.close();
 
@@ -205,7 +205,7 @@ void learning_env::run()
 
         var_tree = tensor_tree::make_var_tree(graph, param);
 
-        std::shared_ptr<lstm::transcriber> trans = lstm_frame::make_hypercolumn_transcriber(layer, dropout, &gen);
+        std::shared_ptr<lstm::transcriber> trans = lstm_frame::make_pyramid_transcriber(layer, dropout, &gen);
 
         trans = std::make_shared<lstm::logsoftmax_transcriber>(
             lstm::logsoftmax_transcriber { trans });
@@ -218,13 +218,19 @@ void learning_env::run()
         auto topo_order = autodiff::topo_order(logprob);
         autodiff::eval(topo_order, autodiff::eval_funcs);
 
-        for (int t = 0; t < labels.size(); ++t) {
+        int freq = std::round(labels.size() / logprob.size());
+
+        for (int t = 0; t < logprob.size(); ++t) {
             auto& pred = autodiff::get_output<la::tensor<double>>(logprob[t]);
             la::tensor<double> gold;
             gold.resize({(unsigned int)(label_id.size())});
 
-            if (!ebt::in(labels[t], ignored)) {
-                gold({label_id.at(labels[t])}) = 1;
+            if (t * freq >= labels.size()) {
+                break;
+            }
+
+            if (!ebt::in(labels[t * freq], ignored)) {
+                gold({label_id.at(labels[t * freq])}) = 1;
             }
 
             nn::log_loss loss { gold, pred };
@@ -243,7 +249,7 @@ void learning_env::run()
 
         std::cout << "loss: " << loss_sum / nframes << std::endl;
 
-        std::shared_ptr<tensor_tree::vertex> grad = lstm_frame::make_hypercolumn_tensor_tree(layer);
+        std::shared_ptr<tensor_tree::vertex> grad = lstm_frame::make_tensor_tree(layer);
         tensor_tree::copy_grad(grad, var_tree);
 
         double n = tensor_tree::norm(grad);
