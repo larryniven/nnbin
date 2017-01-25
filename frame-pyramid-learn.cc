@@ -218,7 +218,7 @@ void learning_env::run()
         auto topo_order = autodiff::topo_order(logprob);
         autodiff::eval(topo_order, autodiff::eval_funcs);
 
-        int freq = std::round(labels.size() / logprob.size());
+        int freq = std::round(double(labels.size()) / logprob.size());
 
         for (int t = 0; t < logprob.size(); ++t) {
             auto& pred = autodiff::get_output<la::tensor<double>>(logprob[t]);
