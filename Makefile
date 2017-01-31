@@ -30,7 +30,8 @@ bin = \
     rhn-learn \
     rhn-predict \
     rsg-learn \
-    rsg-predict
+    rsg-predict \
+    rsg-loss
 
 all: $(bin)
 
@@ -120,5 +121,8 @@ rsg-learn: rsg-learn.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
 
 rsg-predict: rsg-predict.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
+
+rsg-loss: rsg-loss.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
 

@@ -122,7 +122,7 @@ void prediction_env::run()
 
         std::cout << nsample << ".label" << std::endl;
 
-        int freq = std::round(frames.size() / logprob.size());
+        int freq = std::round(double(frames.size()) / logprob.size());
 
         for (int t = 0; t < frames.size(); ++t) {
             auto& pred = autodiff::get_output<la::tensor_like<double>>(logprob[t / freq]);
