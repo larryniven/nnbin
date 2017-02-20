@@ -119,8 +119,11 @@ void prediction_env::run()
 
             label_vec(label_id.at(segs.at(index).label)) = 1;
 
+            std::shared_ptr<lstm::lstm_step_transcriber> step
+                = std::make_shared<lstm::dyer_lstm_step_transcriber>(lstm::dyer_lstm_step_transcriber{});
+
             auto output = rsg::make_nn(comp_graph.var(la::tensor<double>(label_vec)),
-                init_input, var_tree, end_time - start_time);
+                init_input, var_tree, end_time - start_time, step);
 
             // std::vector<std::shared_ptr<autodiff::op_t>> seg_frames;
 

@@ -170,8 +170,8 @@ void prediction_env::run()
         double loss_sum = 0;
         double nframes = 0;
 
-        auto topo_order = autodiff::topo_order(logprob);
-        autodiff::eval(topo_order, autodiff::eval_funcs);
+        // auto topo_order = autodiff::topo_order(logprob);
+        // autodiff::eval(topo_order, autodiff::eval_funcs);
 
         for (int t = 0; t < frames.size(); ++t) {
             auto& pred = autodiff::get_output<la::tensor_like<double>>(logprob[t]);

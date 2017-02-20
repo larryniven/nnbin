@@ -13,6 +13,8 @@ struct learning_env {
 
     std::shared_ptr<tensor_tree::vertex> param;
 
+    int layer;
+
     std::shared_ptr<tensor_tree::optimizer> opt;
 
     std::string output_param;
@@ -46,8 +48,13 @@ learning_env::learning_env(std::unordered_map<std::string, std::string> const& a
     frame_batch.open(args.at("frame-batch"));
     seg_batch.open(args.at("seg-batch"));
 
-    param = rsg::make_tensor_tree();
-    tensor_tree::load_tensor(param, args.at("param"));
+    std::string line;
+    std::ifstream param_ifs { args.at("param") };
+    std::getline(param_ifs, line);
+    layer = std::stoi(line);
+    param = rsg::make_tensor_tree(layer);
+    tensor_tree::load_tensor(param, param_ifs);
+    param_ifs.close();
 
     if (ebt::in(std::string("output-param"), args)) {
         output_param = args.at("output-param");
@@ -100,7 +107,9 @@ learning_env::learning_env(std::unordered_map<std::string, std::string> const& a
     }
 
     if (ebt::in(std::string("opt-data"), args)) {
+        std::string line;
         std::ifstream opt_data_ifs { args.at("opt-data") };
+        std::getline(opt_data_ifs, line);
         opt->load_opt_data(opt_data_ifs);
         opt_data_ifs.close();
     }
@@ -205,14 +214,9 @@ void learning_env::run()
 
             std::vector<std::shared_ptr<autodiff::op_t>> seg_frames;
 
-            for (int i = start_time; i < end_time - 1; ++i) {
+            for (int i = start_time; i < end_time; ++i) {
                 seg_frames.push_back(comp_graph.var(la::tensor<double>(la::vector<double>(frames.at(i)))));
             }
-
-            la::vector<double> label_vec;
-            label_vec.resize(id_label.size());
-
-            label_vec(label_id.at(segs.at(index).label)) = 1;
 
             if (seg_frames.size() <= 1) {
                 std::cout << std::endl;
@@ -220,33 +224,50 @@ void learning_env::run()
                 continue;
             }
 
-            std::vector<std::shared_ptr<autodiff::op_t>> output;
+            lstm::lstm_multistep_transcriber multistep;
+            multistep.steps.push_back(std::make_shared<lstm::dyer_lstm_step_transcriber>(
+                lstm::dyer_lstm_step_transcriber{}));
 
-            if (ebt::in(std::string("use-gt"), args)) {
-                output = rsg::make_training_nn(comp_graph.var(la::tensor<double>(label_vec)),
-                    seg_frames, var_tree);
-            } else {
-                output = rsg::make_nn(comp_graph.var(la::tensor<double>(label_vec)),
-                    seg_frames[0], var_tree, end_time - start_time - 1);
+            std::vector<std::shared_ptr<autodiff::op_t>> outputs;
+
+            la::vector<double> label_vec;
+            label_vec.resize(id_label.size());
+            label_vec(label_id.at(segs.at(index).label)) = 1;
+            auto label_embed = autodiff::mul(comp_graph.var(label_vec), tensor_tree::get_var(var_tree->children[0]));
+
+            std::shared_ptr<autodiff::op_t> cell = nullptr;
+            std::shared_ptr<autodiff::op_t> output = nullptr;
+
+            for (int i = 0; i < seg_frames.size(); ++i) {
+                la::vector<double> dur_vec;
+                dur_vec.resize(7); // log2(100) is about 7
+                dur_vec(std::round(std::log2(seg_frames.size() - i))) = 1;
+                auto dur_embed = autodiff::mul(comp_graph.var(dur_vec), tensor_tree::get_var(var_tree->children[1]));
+                auto acoustic_embed = autodiff::mul(seg_frames.at(i), tensor_tree::get_var(var_tree->children[2]));
+
+                auto input_embed = autodiff::add(std::vector<std::shared_ptr<autodiff::op_t>>{ label_embed, dur_embed, acoustic_embed,
+                    tensor_tree::get_var(var_tree->children[3]) });
+                lstm::lstm_step_nn_t nn = multistep(var_tree->children[4], cell, output, input_embed);
+
+                cell = nn.cell;
+
+                outputs.push_back(autodiff::add(autodiff::mul(nn.output, tensor_tree::get_var(var_tree->children[5])),
+                    tensor_tree::get_var(var_tree->children[6])));
             }
-
-            auto topo_order = autodiff::topo_order(output);
-
-            autodiff::eval(topo_order, autodiff::eval_funcs);
 
             double loss_sum = 0;
 
-            for (int t = 0; t < output.size(); ++t) {
+            for (int t = 0; t < outputs.size(); ++t) {
                 la::tensor<double> gold { la::vector<double>(frames.at(t + start_time + 1)) };
 
                 nn::l2_loss loss {
                     gold,
-                    autodiff::get_output<la::tensor_like<double>>(output.at(t))
+                    autodiff::get_output<la::tensor_like<double>>(outputs.at(t))
                 };
 
                 loss_sum += loss.loss();
 
-                output.at(t)->grad = std::make_shared<la::tensor<double>>(loss.grad());
+                outputs.at(t)->grad = std::make_shared<la::tensor<double>>(loss.grad());
             }
 
             std::cout << "label: " << segs.at(index).label << std::endl;
@@ -259,9 +280,10 @@ void learning_env::run()
                 continue;
             }
 
+            auto topo_order = autodiff::natural_topo_order(comp_graph);
             autodiff::grad(topo_order, autodiff::grad_funcs);
 
-            auto grad = rsg::make_tensor_tree();
+            auto grad = rsg::make_tensor_tree(layer);
 
             tensor_tree::copy_grad(grad, var_tree);
 
@@ -295,9 +317,13 @@ void learning_env::run()
     }
 
     if (!ebt::in(std::string("loss-only"), args)) {
-        tensor_tree::save_tensor(param, output_param);
+        std::ofstream param_ofs { output_param };
+        param_ofs << layer << std::endl;
+        tensor_tree::save_tensor(param, param_ofs);
+        param_ofs.close();
 
         std::ofstream opt_data_ofs { output_opt_data };
+        opt_data_ofs << layer << std::endl;
         opt->save_opt_data(opt_data_ofs);
         opt_data_ofs.close();
     }

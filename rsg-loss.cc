@@ -11,6 +11,7 @@ struct learning_env {
     std::ifstream frame_batch;
     std::ifstream seg_batch;
 
+    int layer;
     std::shared_ptr<tensor_tree::vertex> param;
 
     std::vector<std::string> id_label;
@@ -30,8 +31,13 @@ learning_env::learning_env(std::unordered_map<std::string, std::string> const& a
     frame_batch.open(args.at("frame-batch"));
     seg_batch.open(args.at("seg-batch"));
 
-    param = rsg::make_tensor_tree();
-    tensor_tree::load_tensor(param, args.at("param"));
+    std::ifstream param_ifs { args.at("param") };
+    std::string line;
+    std::getline(param_ifs, line);
+    layer = std::stoi(line);
+
+    param = rsg::make_tensor_tree(layer);
+    tensor_tree::load_tensor(param, param_ifs);
 
     id_label = speech::load_label_set(args.at("label"));
     for (int i = 0; i < id_label.size(); ++i) {
@@ -126,14 +132,21 @@ void learning_env::run()
                     continue;
                 }
 
+                lstm::lstm_multistep_transcriber multistep;
+                multistep.steps.push_back(std::make_shared<lstm::dyer_lstm_step_transcriber>(
+                    lstm::dyer_lstm_step_transcriber{}));
+
+                std::shared_ptr<lstm::lstm_step_transcriber> step
+                    = std::make_shared<lstm::lstm_multistep_transcriber>(multistep);
+
                 std::vector<std::shared_ptr<autodiff::op_t>> output;
 
                 if (ebt::in(std::string("use-gt"), args)) {
                     output = rsg::make_training_nn(comp_graph.var(la::tensor<double>(label_vec)),
-                        seg_frames, var_tree);
+                        seg_frames, var_tree, step);
                 } else {
                     output = rsg::make_nn(comp_graph.var(la::tensor<double>(label_vec)),
-                        seg_frames[0], var_tree, end_time - start_time - 1);
+                        seg_frames[0], var_tree, end_time - start_time - 1, step);
                 }
 
                 auto topo_order = autodiff::topo_order(output);

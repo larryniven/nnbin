@@ -278,7 +278,7 @@ void learning_env::run()
         double nframes = 0;
 
         auto topo_order = autodiff::topo_order(logprob);
-        autodiff::eval(topo_order, autodiff::eval_funcs);
+        // autodiff::eval(topo_order, autodiff::eval_funcs);
 
 #if DEBUG 
         {
@@ -337,7 +337,7 @@ void learning_env::run()
             }
 
             auto topo_order2 = autodiff::topo_order(logprob2);
-            autodiff::eval(topo_order2, autodiff::eval_funcs);
+            // autodiff::eval(topo_order2, autodiff::eval_funcs);
 
             auto& pred2 = autodiff::get_output<la::tensor_like<double>>(logprob2[0]);
 
