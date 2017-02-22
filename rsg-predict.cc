@@ -11,6 +11,7 @@ struct prediction_env {
     std::ifstream frame_batch;
     std::ifstream seg_batch;
 
+    int layer;
     std::shared_ptr<tensor_tree::vertex> param;
 
     std::vector<std::string> id_label;
@@ -30,12 +31,20 @@ prediction_env::prediction_env(std::unordered_map<std::string, std::string> cons
     frame_batch.open(args.at("frame-batch"));
     seg_batch.open(args.at("seg-batch"));
 
-    param = rsg::make_tensor_tree();
-    tensor_tree::load_tensor(param, args.at("param"));
+    std::ifstream param_ifs { args.at("param") };
+    std::string line;
+    std::getline(param_ifs, line);
+    layer = std::stoi(line);
+    param = rsg::make_tensor_tree(layer);
+    tensor_tree::load_tensor(param, param_ifs);
+    param_ifs.close();
 
     id_label = speech::load_label_set(args.at("label"));
     for (int i = 0; i < id_label.size(); ++i) {
         label_id[id_label[i]] = i;
+    }
+
+    if (ebt::in(std::string("clamp"), args)) {
     }
 }
 
@@ -49,6 +58,7 @@ int main(int argc, char *argv[])
             {"seg-batch", "", true},
             {"param", "", true},
             {"label", "", true},
+            {"clamp", "", false}
         }
     };
 
@@ -114,32 +124,49 @@ void prediction_env::run()
             auto init_input = comp_graph.var(la::tensor<double>(
                 la::vector<double>(frames.at(start_time))));
 
+            lstm::lstm_multistep_transcriber multistep;
+            multistep.steps.push_back(std::make_shared<lstm::dyer_lstm_step_transcriber>(
+                lstm::dyer_lstm_step_transcriber{}));
+
             la::vector<double> label_vec;
             label_vec.resize(id_label.size());
-
             label_vec(label_id.at(segs.at(index).label)) = 1;
 
-            std::shared_ptr<lstm::lstm_step_transcriber> step
-                = std::make_shared<lstm::dyer_lstm_step_transcriber>(lstm::dyer_lstm_step_transcriber{});
+            auto label_embed = autodiff::mul(comp_graph.var(la::tensor<double>(label_vec)),
+                tensor_tree::get_var(var_tree->children[0]));
 
-            auto output = rsg::make_nn(comp_graph.var(la::tensor<double>(label_vec)),
-                init_input, var_tree, end_time - start_time, step);
+            std::shared_ptr<autodiff::op_t> frame = init_input;
 
-            // std::vector<std::shared_ptr<autodiff::op_t>> seg_frames;
+            std::vector<std::shared_ptr<autodiff::op_t>> outputs;
 
-            // for (int i = start_time; i < end_time; ++i) {
-            //     seg_frames.push_back(comp_graph.var(la::tensor<double>(la::vector<double>(frames.at(i)))));
-            // }
+            int frames = end_time - start_time - 1;
 
-            // auto output = rsg::make_training_nn(comp_graph.var(la::tensor<double>(label_vec)),
-            //      seg_frames, var_tree);
+            for (int i = 0; i < frames; ++i) {
+                la::vector<double> dur_vec;
+                dur_vec.resize(100);
+                dur_vec(frames - i) = 1;
 
-            auto topo_order = autodiff::topo_order(output);
+                auto dur_embed = autodiff::mul(comp_graph.var(la::tensor<double>(dur_vec)),
+                    tensor_tree::get_var(var_tree->children[1]));
+                auto acoustic_embed = autodiff::mul(frame,
+                    tensor_tree::get_var(var_tree->children[2]));
 
-            autodiff::eval(topo_order, autodiff::eval_funcs);
+                auto input_embed = autodiff::add(
+                    std::vector<std::shared_ptr<autodiff::op_t>>{ label_embed,
+                        dur_embed, acoustic_embed,
+                        tensor_tree::get_var(var_tree->children[3]) });
 
-            for (int t = 1; t < output.size(); ++t) {
-                auto& v = autodiff::get_output<la::tensor<double>>(output.at(t-1));
+                auto output = multistep(var_tree->children[4], input_embed);
+
+                outputs.push_back(autodiff::add(autodiff::mul(output,
+                    tensor_tree::get_var(var_tree->children[5])),
+                    tensor_tree::get_var(var_tree->children[6])));
+
+                frame = outputs.back();
+            }
+
+            for (int t = 0; t < outputs.size(); ++t) {
+                auto& v = autodiff::get_output<la::tensor<double>>(outputs.at(t));
 
                 for (int d = 0; d < v.vec_size(); ++d) {
                     std::cout << v.data()[d];

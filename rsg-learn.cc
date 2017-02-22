@@ -214,7 +214,7 @@ void learning_env::run()
 
             std::vector<std::shared_ptr<autodiff::op_t>> seg_frames;
 
-            for (int i = start_time; i < end_time; ++i) {
+            for (int i = start_time; i < end_time - 1; ++i) {
                 seg_frames.push_back(comp_graph.var(la::tensor<double>(la::vector<double>(frames.at(i)))));
             }
 
@@ -233,26 +233,34 @@ void learning_env::run()
             la::vector<double> label_vec;
             label_vec.resize(id_label.size());
             label_vec(label_id.at(segs.at(index).label)) = 1;
-            auto label_embed = autodiff::mul(comp_graph.var(label_vec), tensor_tree::get_var(var_tree->children[0]));
 
-            std::shared_ptr<autodiff::op_t> cell = nullptr;
-            std::shared_ptr<autodiff::op_t> output = nullptr;
+            auto label_embed = autodiff::mul(comp_graph.var(la::tensor<double>(label_vec)),
+                tensor_tree::get_var(var_tree->children[0]));
+
+            std::shared_ptr<autodiff::op_t> frame = seg_frames.front();
 
             for (int i = 0; i < seg_frames.size(); ++i) {
                 la::vector<double> dur_vec;
-                dur_vec.resize(7); // log2(100) is about 7
-                dur_vec(std::round(std::log2(seg_frames.size() - i))) = 1;
-                auto dur_embed = autodiff::mul(comp_graph.var(dur_vec), tensor_tree::get_var(var_tree->children[1]));
-                auto acoustic_embed = autodiff::mul(seg_frames.at(i), tensor_tree::get_var(var_tree->children[2]));
+                dur_vec.resize(100);
+                dur_vec(seg_frames.size() - i) = 1;
 
-                auto input_embed = autodiff::add(std::vector<std::shared_ptr<autodiff::op_t>>{ label_embed, dur_embed, acoustic_embed,
-                    tensor_tree::get_var(var_tree->children[3]) });
-                lstm::lstm_step_nn_t nn = multistep(var_tree->children[4], cell, output, input_embed);
+                auto dur_embed = autodiff::mul(comp_graph.var(la::tensor<double>(dur_vec)),
+                    tensor_tree::get_var(var_tree->children[1]));
+                auto acoustic_embed = autodiff::mul(seg_frames.at(i),
+                    tensor_tree::get_var(var_tree->children[2]));
 
-                cell = nn.cell;
+                auto input_embed = autodiff::add(
+                    std::vector<std::shared_ptr<autodiff::op_t>>{ label_embed,
+                        dur_embed, acoustic_embed,
+                        tensor_tree::get_var(var_tree->children[3]) });
 
-                outputs.push_back(autodiff::add(autodiff::mul(nn.output, tensor_tree::get_var(var_tree->children[5])),
+                auto output = multistep(var_tree->children[4], input_embed);
+
+                outputs.push_back(autodiff::add(autodiff::mul(output,
+                    tensor_tree::get_var(var_tree->children[5])),
                     tensor_tree::get_var(var_tree->children[6])));
+
+                frame = outputs.back();
             }
 
             double loss_sum = 0;
@@ -281,7 +289,7 @@ void learning_env::run()
             }
 
             auto topo_order = autodiff::natural_topo_order(comp_graph);
-            autodiff::grad(topo_order, autodiff::grad_funcs);
+            autodiff::guarded_grad(topo_order, autodiff::grad_funcs);
 
             auto grad = rsg::make_tensor_tree(layer);
 
@@ -309,6 +317,8 @@ void learning_env::run()
 
             std::cout << "weight: " << v1 << " update: " << v2 - v1
                 << " rate: " << (v2 - v1) / v1 << std::endl;
+
+            std::cout << "norm: " << tensor_tree::norm(param) << std::endl;
 
             std::cout << std::endl;
         }
