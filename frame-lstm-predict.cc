@@ -94,7 +94,7 @@ void prediction_env::run()
 
         var_tree = tensor_tree::make_var_tree(graph, param);
 
-        std::shared_ptr<lstm::lstm_step_transcriber> step
+        std::shared_ptr<lstm::step_transcriber> step
             = std::make_shared<lstm::dyer_lstm_step_transcriber>(lstm::dyer_lstm_step_transcriber{});
 
         std::shared_ptr<lstm::layered_transcriber> layered_trans
@@ -112,9 +112,6 @@ void prediction_env::run()
             lstm::logsoftmax_transcriber { layered_trans });
 
         std::vector<std::shared_ptr<autodiff::op_t>> logprob = (*trans)(var_tree, inputs);
-
-        auto topo_order = autodiff::topo_order(logprob);
-        autodiff::eval(topo_order, autodiff::eval_funcs);
 
         std::cout << nsample << ".phn" << std::endl;
 

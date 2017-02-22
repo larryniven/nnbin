@@ -189,12 +189,12 @@ void learning_env::run()
 
         var_tree = tensor_tree::make_var_tree(graph, param);
 
-        std::shared_ptr<lstm::lstm_step_transcriber> step
+        std::shared_ptr<lstm::step_transcriber> step
             = std::make_shared<lstm::dyer_lstm_step_transcriber>(lstm::dyer_lstm_step_transcriber{});
 
         if (ebt::in(std::string("dropout"), args)) {
-            step = std::make_shared<lstm::lstm_input_dropout_transcriber>(
-                lstm::lstm_input_dropout_transcriber { gen, dropout, step });
+            step = std::make_shared<lstm::input_dropout_transcriber>(
+                lstm::input_dropout_transcriber { gen, dropout, step });
         }
 
         std::shared_ptr<lstm::layered_transcriber> layered_trans
@@ -216,9 +216,6 @@ void learning_env::run()
         double loss_sum = 0;
         double nframes = 0;
 
-        auto topo_order = autodiff::topo_order(logprob);
-        autodiff::eval(topo_order, autodiff::eval_funcs);
-
         for (int t = 0; t < labels.size(); ++t) {
             auto& pred = autodiff::get_output<la::tensor<double>>(logprob[t]);
             la::tensor<double> gold;
@@ -238,6 +235,7 @@ void learning_env::run()
             }
         }
 
+        auto topo_order = autodiff::topo_order(logprob);
         autodiff::grad(topo_order, autodiff::grad_funcs);
 
         std::cout << "loss: " << loss_sum / nframes << std::endl;
