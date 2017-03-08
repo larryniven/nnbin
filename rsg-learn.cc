@@ -215,7 +215,8 @@ void learning_env::run()
             std::vector<std::shared_ptr<autodiff::op_t>> seg_frames;
 
             for (int i = start_time; i < end_time - 1; ++i) {
-                seg_frames.push_back(comp_graph.var(la::tensor<double>(la::vector<double>(frames.at(i)))));
+                seg_frames.push_back(comp_graph.var(
+                    la::tensor<double>(la::vector<double>(frames.at(i)))));
             }
 
             if (seg_frames.size() <= 1) {

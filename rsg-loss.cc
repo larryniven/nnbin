@@ -118,13 +118,9 @@ void learning_env::run()
                 std::vector<std::shared_ptr<autodiff::op_t>> seg_frames;
 
                 for (int i = start_time; i < end_time - 1; ++i) {
-                    seg_frames.push_back(comp_graph.var(la::tensor<double>(la::vector<double>(frames.at(i)))));
+                    seg_frames.push_back(comp_graph.var(
+                        la::tensor<double>(la::vector<double>(frames.at(i)))));
                 }
-
-                la::vector<double> label_vec;
-                label_vec.resize(id_label.size());
-
-                label_vec(id) = 1;
 
                 if (seg_frames.size() <= 1) {
                     std::cout << std::endl;
@@ -136,36 +132,52 @@ void learning_env::run()
                 multistep.steps.push_back(std::make_shared<lstm::dyer_lstm_step_transcriber>(
                     lstm::dyer_lstm_step_transcriber{}));
 
-                std::shared_ptr<lstm::lstm_step_transcriber> step
-                    = std::make_shared<lstm::lstm_multistep_transcriber>(multistep);
+                std::vector<std::shared_ptr<autodiff::op_t>> outputs;
 
-                std::vector<std::shared_ptr<autodiff::op_t>> output;
+                la::vector<double> label_vec;
+                label_vec.resize(id_label.size());
+                label_vec(id) = 1;
 
-                if (ebt::in(std::string("use-gt"), args)) {
-                    output = rsg::make_training_nn(comp_graph.var(la::tensor<double>(label_vec)),
-                        seg_frames, var_tree, step);
-                } else {
-                    output = rsg::make_nn(comp_graph.var(la::tensor<double>(label_vec)),
-                        seg_frames[0], var_tree, end_time - start_time - 1, step);
+                auto label_embed = autodiff::mul(comp_graph.var(la::tensor<double>(label_vec)),
+                    tensor_tree::get_var(var_tree->children[0]));
+
+                std::shared_ptr<autodiff::op_t> frame = seg_frames.front();
+
+                for (int i = 0; i < seg_frames.size(); ++i) {
+                    la::vector<double> dur_vec;
+                    dur_vec.resize(100);
+                    dur_vec(seg_frames.size() - i) = 1;
+
+                    auto dur_embed = autodiff::mul(comp_graph.var(la::tensor<double>(dur_vec)),
+                        tensor_tree::get_var(var_tree->children[1]));
+                    auto acoustic_embed = autodiff::mul(seg_frames.at(i),
+                        tensor_tree::get_var(var_tree->children[2]));
+
+                    auto input_embed = autodiff::add(
+                        std::vector<std::shared_ptr<autodiff::op_t>>{ label_embed,
+                            dur_embed, acoustic_embed,
+                            tensor_tree::get_var(var_tree->children[3]) });
+
+                    auto output = multistep(var_tree->children[4], input_embed);
+
+                    outputs.push_back(autodiff::add(autodiff::mul(output,
+                        tensor_tree::get_var(var_tree->children[5])),
+                        tensor_tree::get_var(var_tree->children[6])));
+
+                    frame = outputs.back();
                 }
-
-                auto topo_order = autodiff::topo_order(output);
-
-                autodiff::eval(topo_order, autodiff::eval_funcs);
 
                 double loss_sum = 0;
 
-                for (int t = 0; t < output.size(); ++t) {
+                for (int t = 0; t < outputs.size(); ++t) {
                     la::tensor<double> gold { la::vector<double>(frames.at(t + start_time + 1)) };
 
                     nn::l2_loss loss {
                         gold,
-                        autodiff::get_output<la::tensor_like<double>>(output.at(t))
+                        autodiff::get_output<la::tensor_like<double>>(outputs.at(t))
                     };
 
                     loss_sum += loss.loss();
-
-                    output.at(t)->grad = std::make_shared<la::tensor<double>>(loss.grad());
                 }
 
                 id_loss[id] = loss_sum;
