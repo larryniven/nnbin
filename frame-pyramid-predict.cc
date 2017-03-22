@@ -117,9 +117,6 @@ void prediction_env::run()
         double loss_sum = 0;
         double nframes = 0;
 
-        auto topo_order = autodiff::topo_order(logprob);
-        autodiff::eval(topo_order, autodiff::eval_funcs);
-
         std::cout << nsample << ".label" << std::endl;
 
         int freq = std::round(double(frames.size()) / logprob.size());

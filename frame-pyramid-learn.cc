@@ -215,9 +215,6 @@ void learning_env::run()
         double loss_sum = 0;
         double nframes = 0;
 
-        auto topo_order = autodiff::topo_order(logprob);
-        autodiff::eval(topo_order, autodiff::eval_funcs);
-
         int freq = std::round(double(labels.size()) / logprob.size());
 
         for (int t = 0; t < logprob.size(); ++t) {
@@ -245,7 +242,8 @@ void learning_env::run()
             }
         }
 
-        autodiff::grad(topo_order, autodiff::grad_funcs);
+        auto topo_order = autodiff::natural_topo_order(graph);
+        autodiff::guarded_grad(topo_order, autodiff::grad_funcs);
 
         std::cout << "loss: " << loss_sum / nframes << std::endl;
 
