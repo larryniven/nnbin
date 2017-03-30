@@ -15,16 +15,12 @@ struct learning_env {
     std::ifstream frame_batch;
     std::ifstream label_batch;
 
+    int layer;
     std::shared_ptr<tensor_tree::vertex> param;
 
     std::shared_ptr<tensor_tree::optimizer> opt;
 
-    std::shared_ptr<tensor_tree::vertex> var_tree;
-
-    int layer;
-
     double step_size;
-    double decay;
 
     double dropout;
     int seed;
@@ -105,10 +101,6 @@ learning_env::learning_env(std::unordered_map<std::string, std::string> args)
 
     step_size = std::stod(args.at("step-size"));
 
-    if (ebt::in(std::string("decay"), args)) {
-        decay = std::stod(args.at("decay"));
-    }
-
     output_param = "param-last";
     if (ebt::in(std::string("output-param"), args)) {
         output_param = args.at("output-param");
@@ -143,6 +135,7 @@ learning_env::learning_env(std::unordered_map<std::string, std::string> args)
     }
 
     if (ebt::in(std::string("decay"), args)) {
+        double decay = std::stod(args.at("decay"));
         opt = std::make_shared<tensor_tree::rmsprop_opt>(
             tensor_tree::rmsprop_opt(param, decay, step_size));
     } else if (ebt::in(std::string("const-step-update"), args)) {
@@ -187,7 +180,7 @@ void learning_env::run()
             inputs.push_back(graph.var(la::tensor<double>(la::vector<double>(frames[i]))));
         }
 
-        var_tree = tensor_tree::make_var_tree(graph, param);
+        std::shared_ptr<tensor_tree::vertex> var_tree = tensor_tree::make_var_tree(graph, param);
 
         std::shared_ptr<lstm::step_transcriber> step
             = std::make_shared<lstm::dyer_lstm_step_transcriber>(lstm::dyer_lstm_step_transcriber{});

@@ -43,6 +43,8 @@ int main(int argc, char *argv[])
             {"frame-batch", "", true},
             {"param", "", true},
             {"label", "", true},
+            {"print-logprob", "", false},
+            {"print-hidden", "", false},
         }
     };
 
@@ -109,32 +111,52 @@ void prediction_env::run()
         std::shared_ptr<lstm::transcriber> trans
             = lstm_frame::make_pyramid_transcriber(layer, 0.0, nullptr);
 
-        trans = std::make_shared<lstm::logsoftmax_transcriber>(
-            lstm::logsoftmax_transcriber { trans });
+        std::vector<std::shared_ptr<autodiff::op_t>> output;
 
-        std::vector<std::shared_ptr<autodiff::op_t>> logprob = (*trans)(var_tree, inputs);
+        if (ebt::in(std::string("print-hidden"), args)) {
+            output = (*trans)(var_tree->children[0], inputs);
+        } else {
+            trans = std::make_shared<lstm::logsoftmax_transcriber>(
+                lstm::logsoftmax_transcriber { trans });
+            output = (*trans)(var_tree, inputs);
+        }
 
         double loss_sum = 0;
         double nframes = 0;
 
         std::cout << nsample << ".label" << std::endl;
 
-        int freq = std::round(double(frames.size()) / logprob.size());
+        if (ebt::in(std::string("print-logprob"), args) || ebt::in(std::string("print-hidden"), args)) {
+            for (int t = 0; t < output.size(); ++t) {
+                auto& pred = autodiff::get_output<la::tensor_like<double>>(output[t]);
 
-        for (int t = 0; t < frames.size(); ++t) {
-            auto& pred = autodiff::get_output<la::tensor_like<double>>(logprob[t / freq]);
+                for (int i = 0; i < pred.vec_size(); ++i) {
+                    if (i != 0) {
+                        std::cout << " ";
+                    }
 
-            double max = -std::numeric_limits<double>::infinity();
-            unsigned int argmax;
-
-            for (int i = 0; i < pred.vec_size(); ++i) {
-                if (pred({i}) > max) {
-                    max = pred({i});
-                    argmax = i;
+                    std::cout << pred({i});
                 }
+                std::cout << std::endl;
             }
+        } else {
+            int freq = std::round(double(frames.size()) / output.size());
 
-            std::cout << id_label.at(argmax) << std::endl;
+            for (int t = 0; t < frames.size(); ++t) {
+                auto& pred = autodiff::get_output<la::tensor_like<double>>(output[t / freq]);
+
+                double max = -std::numeric_limits<double>::infinity();
+                unsigned int argmax;
+
+                for (int i = 0; i < pred.vec_size(); ++i) {
+                    if (pred({i}) > max) {
+                        max = pred({i});
+                        argmax = i;
+                    }
+                }
+
+                std::cout << id_label.at(argmax) << std::endl;
+            }
         }
 
         std::cout << "." << std::endl;
