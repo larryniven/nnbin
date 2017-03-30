@@ -9,26 +9,27 @@
 #include <random>
 #include "nn/tensor-tree.h"
 #include "nn/lstm-frame.h"
+#include <algorithm>
 
 struct learning_env {
 
-    std::ifstream frame_batch;
-    std::ifstream label_batch;
+    speech::batch_indices frame_batch;
+    speech::batch_indices label_batch;
 
     int layer;
     std::shared_ptr<tensor_tree::vertex> param;
 
     std::shared_ptr<tensor_tree::optimizer> opt;
 
-    double step_size;
-
-    double dropout;
-    int seed;
-
     std::string output_param;
     std::string output_opt_data;
 
+    int seed;
+    double dropout;
+    double step_size;
     double clip;
+
+    std::default_random_engine gen;
 
     std::unordered_map<std::string, int> label_id;
 
@@ -61,7 +62,7 @@ int main(int argc, char *argv[])
             {"ignore", "", false},
             {"dropout", "", false},
             {"seed", "", false},
-            {"const-step-update"},
+            {"opt", "const-step,rmsprop,adagrad", true},
         }
     };
 
@@ -126,50 +127,67 @@ learning_env::learning_env(std::unordered_map<std::string, std::string> args)
         ignored.insert(parts.begin(), parts.end());
     }
 
+    dropout = 0;
     if (ebt::in(std::string("dropout"), args)) {
         dropout = std::stod(args.at("dropout"));
     }
 
+    seed = 1;
     if (ebt::in(std::string("seed"), args)) {
         seed = std::stoi(args.at("seed"));
     }
 
-    if (ebt::in(std::string("decay"), args)) {
+    if (args.at("opt") == "rmsprop") {
         double decay = std::stod(args.at("decay"));
         opt = std::make_shared<tensor_tree::rmsprop_opt>(
             tensor_tree::rmsprop_opt(param, decay, step_size));
-    } else if (ebt::in(std::string("const-step-update"), args)) {
+    } else if (args.at("opt") == "const-step") {
         opt = std::make_shared<tensor_tree::const_step_opt>(
             tensor_tree::const_step_opt(param, step_size));
-    } else {
+    } else if (args.at("opt") == "adagrad") {
         opt = std::make_shared<tensor_tree::adagrad_opt>(
             tensor_tree::adagrad_opt(param, step_size));
+    } else {
+        std::cout << "unknown optimizer " << args.at("opt") << std::endl;
+        exit(1);
     }
+
+    gen = std::default_random_engine { seed };
 
     std::ifstream opt_data_ifs { args.at("opt-data") };
     std::getline(opt_data_ifs, line);
     opt->load_opt_data(opt_data_ifs);
     opt_data_ifs.close();
+
+    if (ebt::in(std::string("shuffle"), args)) {
+        std::vector<int> indices;
+        indices.resize(frame_batch.pos.size());
+
+        for (int i = 0; i < indices.size(); ++i) {
+            indices[i] = i;
+        }
+        std::shuffle(indices.begin(), indices.end(), gen);
+
+        std::vector<unsigned long> pos = frame_batch.pos;
+        for (int i = 0; i < indices.size(); ++i) {
+            frame_batch.pos[i] = pos[indices[i]];
+        }
+
+        pos = label_batch.pos;
+        for (int i = 0; i < indices.size(); ++i) {
+            label_batch.pos[i] = pos[indices[i]];
+        }
+    }
 }
 
 void learning_env::run()
 {
-    int nsample = 1;
+    int nsample = 0;
 
-    std::default_random_engine gen { seed };
+    while (nsample < frame_batch.pos.size()) {
+        std::vector<std::vector<double>> frames = speech::load_frame_batch(frame_batch.at(nsample));
 
-    while (1) {
-        std::vector<std::vector<double>> frames;
-
-        frames = speech::load_frame_batch(frame_batch);
-
-	std::vector<std::string> labels;
-
-	labels = speech::load_label_batch(label_batch);
-
-        if (!frame_batch || !label_batch) {
-            break;
-        }
+	std::vector<std::string> labels = speech::load_label_batch(label_batch.at(nsample));
 
         assert(frames.size() == labels.size());
 
@@ -182,27 +200,10 @@ void learning_env::run()
 
         std::shared_ptr<tensor_tree::vertex> var_tree = tensor_tree::make_var_tree(graph, param);
 
-        std::shared_ptr<lstm::step_transcriber> step
-            = std::make_shared<lstm::dyer_lstm_step_transcriber>(lstm::dyer_lstm_step_transcriber{});
-
-        if (ebt::in(std::string("dropout"), args)) {
-            step = std::make_shared<lstm::input_dropout_transcriber>(
-                lstm::input_dropout_transcriber { gen, dropout, step });
-        }
-
-        std::shared_ptr<lstm::layered_transcriber> layered_trans
-            = std::make_shared<lstm::layered_transcriber>(lstm::layered_transcriber {});
-
-        for (int i = 0; i < layer; ++i) {
-            layered_trans->layer.push_back(
-                std::make_shared<lstm::bi_transcriber>(lstm::bi_transcriber{
-                    std::make_shared<lstm::lstm_transcriber>(lstm::lstm_transcriber{step})
-                }));
-        }
-
         std::shared_ptr<lstm::transcriber> trans
-            = std::make_shared<lstm::logsoftmax_transcriber>(
-            lstm::logsoftmax_transcriber { layered_trans });
+            = lstm_frame::make_transcriber(layer, dropout, &gen);
+        trans = std::make_shared<lstm::logsoftmax_transcriber>(
+            lstm::logsoftmax_transcriber { trans });
 
         std::vector<std::shared_ptr<autodiff::op_t>> logprob = (*trans)(var_tree, inputs);
 
@@ -210,7 +211,7 @@ void learning_env::run()
         double nframes = 0;
 
         for (int t = 0; t < labels.size(); ++t) {
-            auto& pred = autodiff::get_output<la::tensor<double>>(logprob[t]);
+            auto& pred = autodiff::get_output<la::tensor_like<double>>(logprob[t]);
             la::tensor<double> gold;
             gold.resize({(unsigned int)(label_id.size())});
             if (!ebt::in(labels[t], ignored)) {
@@ -228,8 +229,8 @@ void learning_env::run()
             }
         }
 
-        auto topo_order = autodiff::topo_order(logprob);
-        autodiff::grad(topo_order, autodiff::grad_funcs);
+        auto topo_order = autodiff::natural_topo_order(graph);
+        autodiff::guarded_grad(topo_order, autodiff::grad_funcs);
 
         std::cout << "loss: " << loss_sum / nframes << std::endl;
 
@@ -238,7 +239,7 @@ void learning_env::run()
 
         double n = tensor_tree::norm(grad);
 
-        std::cout << "norm: " << n << std::endl;
+        std::cout << "grad norm: " << n << std::endl;
 
         if (ebt::in(std::string("clip"), args)) {
             if (n > clip) {
@@ -257,6 +258,8 @@ void learning_env::run()
         double v2 = v.data()[0];
 
         std::cout << "weight: " << v1 << " update: " << v2 - v1 << " rate: " << (v2 - v1) / v1 << std::endl;
+
+        std::cout << std::endl;
 
 #if DEBUG_TOP
         if (nsample == DEBUG_TOP) {
