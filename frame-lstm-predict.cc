@@ -31,7 +31,8 @@ int main(int argc, char *argv[])
             {"frame-batch", "", true},
             {"param", "", true},
             {"label", "", true},
-            {"logprob", "", false},
+            {"print-logprob", "", false},
+            {"print-hidden", "", false},
         }
     };
 

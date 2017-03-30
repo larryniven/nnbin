@@ -61,6 +61,7 @@ int main(int argc, char *argv[])
             {"label", "", true},
             {"ignore", "", false},
             {"dropout", "", false},
+            {"shuffle", "", false},
             {"seed", "", false},
             {"opt", "const-step,rmsprop,adagrad", true},
         }
