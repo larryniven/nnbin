@@ -90,7 +90,7 @@ void prediction_env::run()
             inputs.push_back(graph.var(la::tensor<double>(la::vector<double>(frames[i]))));
         }
 
-        var_tree = tensor_tree::make_var_tree(graph, param);
+        std::shared_ptr<tensor_tree::vertex> var_tree = tensor_tree::make_var_tree(graph, param);
 
         std::shared_ptr<lstm::transcriber> trans
             = lstm_frame::make_transcriber(layer, 0.0, nullptr);
