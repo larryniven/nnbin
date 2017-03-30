@@ -59,17 +59,17 @@ int main(int argc, char *argv[])
             {"label-batch", "", true},
             {"param", "", true},
             {"opt-data", "", true},
-            {"step-size", "", true},
-            {"decay", "", false},
             {"output-param", "", false},
             {"output-opt-data", "", false},
-            {"clip", "", false},
             {"label", "", true},
             {"ignore", "", false},
             {"dropout", "", false},
             {"seed", "", false},
-            {"const-step-update"},
-            {"shuffle"}
+            {"shuffle", "", false},
+            {"opt", "const-step,rmsprop,adagrad", true},
+            {"step-size", "", true},
+            {"decay", "", false},
+            {"clip", "", false},
         }
     };
 
@@ -149,15 +149,19 @@ learning_env::learning_env(std::unordered_map<std::string, std::string> args)
 
     gen = std::default_random_engine { seed };
 
-    if (ebt::in(std::string("decay"), args)) {
+    if (args.at("opt") == "rmsprop") {
+        double decay = std::stod(args.at("decay"));
         opt = std::make_shared<tensor_tree::rmsprop_opt>(
             tensor_tree::rmsprop_opt(param, decay, step_size));
-    } else if (ebt::in(std::string("const-step-update"), args)) {
+    } else if (args.at("opt") == "const-step") {
         opt = std::make_shared<tensor_tree::const_step_opt>(
             tensor_tree::const_step_opt(param, step_size));
-    } else {
+    } else if (args.at("opt") == "adagrad") {
         opt = std::make_shared<tensor_tree::adagrad_opt>(
             tensor_tree::adagrad_opt(param, step_size));
+    } else {
+        std::cout << "unknown optimizer " << args.at("opt") << std::endl;
+        exit(1);
     }
 
     std::ifstream opt_data_ifs { args.at("opt-data") };
