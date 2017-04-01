@@ -152,7 +152,7 @@ learning_env::learning_env(std::unordered_map<std::string, std::string> args)
     if (args.at("opt") == "rmsprop") {
         double decay = std::stod(args.at("decay"));
         opt = std::make_shared<tensor_tree::rmsprop_opt>(
-            tensor_tree::rmsprop_opt(param, decay, step_size));
+            tensor_tree::rmsprop_opt(param, step_size, decay));
     } else if (args.at("opt") == "const-step") {
         opt = std::make_shared<tensor_tree::const_step_opt>(
             tensor_tree::const_step_opt(param, step_size));
