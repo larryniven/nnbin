@@ -1,37 +1,42 @@
-CXXFLAGS += -std=c++11 -I .. -L ../ebt -L ../la -L ../opt -L ../autodiff -L ../nn -L ../speech
+CXXFLAGS += -std=c++14 -I .. -L ../ebt -L ../la -L ../opt -L ../autodiff -L ../nn -L ../speech
+NVCCFLAGS += -std=c++11 -I .. -L ../ebt -L ../la -L ../opt -L ../autodiff -L ../nn -L ../speech
 
 .PHONY: all clean
 
 bin = \
-    learn \
-    predict \
     frame-lstm-learn \
+    frame-lstm-learn-batch \
     frame-lstm-predict \
-    loss-lstm \
     frame-cnn-learn \
     frame-cnn-predict \
-    frame-hypercolumn-learn \
-    frame-hypercolumn-predict \
-    frame-pyramid-learn \
-    frame-pyramid-predict \
-    learn-gru \
-    predict-gru \
-    learn-residual \
-    predict-residual \
-    lstm-seg-ld-learn \
-    lstm-seg-ld-predict \
-    lstm-seg-li-learn \
-    lstm-seg-li-predict \
-    lstm-seg-li-avg \
-    lstm-seg-li-grad \
-    lstm-seg-li-update \
-    lstm-seg-logp-learn \
-    lstm-seg-logp-predict \
-    rhn-learn \
-    rhn-predict \
-    rsg-learn \
-    rsg-predict \
-    rsg-loss
+    frame-lstm-learn-batch-gpu \
+
+    # learn \
+    # predict \
+    # loss-lstm \
+    # frame-hypercolumn-learn \
+    # frame-hypercolumn-predict \
+    # frame-pyramid-learn \
+    # frame-pyramid-predict \
+    # learn-gru \
+    # predict-gru \
+    # learn-residual \
+    # predict-residual \
+    # lstm-seg-ld-learn \
+    # lstm-seg-ld-predict \
+    # lstm-seg-li-learn \
+    # lstm-seg-li-predict \
+    # lstm-seg-li-avg \
+    # lstm-seg-li-grad \
+    # lstm-seg-li-update \
+    # lstm-seg-logp-learn \
+    # lstm-seg-logp-predict \
+    # rhn-learn \
+    # rhn-predict \
+    # rsg-learn \
+    # rsg-predict \
+    # rsg-loss
+
 
 all: $(bin)
 
@@ -45,8 +50,17 @@ learn: learn.o
 predict: predict.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lopt -lla -lebt -lblas
 
+frame-lstm-learn-batch: frame-lstm-learn-batch.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lopenblas
+
 frame-lstm-learn: frame-lstm-learn.o
-	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lopenblas
+
+frame-lstm-learn-batch-gpu.o: frame-lstm-learn-batch-gpu.cu
+	nvcc $(NVCCFLAGS) -c frame-lstm-learn-batch-gpu.cu
+
+frame-lstm-learn-batch-gpu: frame-lstm-learn-batch-gpu.o
+	$(CXX) $(CXXFLAGS) -L /opt/cuda/lib64 -o $@ $^ -lnngpu -lautodiffgpu -lspeech -loptgpu -llagpu -lebt -lblas -lcublas -lcuda -lcudart
 
 frame-lstm-predict: frame-lstm-predict.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas

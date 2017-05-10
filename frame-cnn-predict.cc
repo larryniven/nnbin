@@ -12,12 +12,12 @@
 
 std::shared_ptr<tensor_tree::vertex> make_tensor_tree(int conv_layer, int fc_layer)
 {
-    tensor_tree::vertex root { tensor_tree::tensor_t::nil };
+    tensor_tree::vertex root { "nil" };
 
     root.children.push_back(cnn::make_cnn_tensor_tree(conv_layer));
 
     for (int i = 0; i < fc_layer; ++i) {
-        tensor_tree::vertex fc { tensor_tree::tensor_t::nil };
+        tensor_tree::vertex fc { "nil" };
         fc.children.push_back(tensor_tree::make_tensor("softmax weight"));
         fc.children.push_back(tensor_tree::make_tensor("softmax bias"));
         root.children.push_back(std::make_shared<tensor_tree::vertex>(fc));
