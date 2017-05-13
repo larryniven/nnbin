@@ -191,6 +191,8 @@ learning_env::learning_env(std::unordered_map<std::string, std::string> args)
 
 void learning_env::run()
 {
+    ebt::Timer timer;
+
     int nsample = 0;
 
     std::shared_ptr<tensor_tree::vertex> accu_grad = tensor_tree::deep_copy(param);
@@ -204,66 +206,64 @@ void learning_env::run()
         assert(frames.size() == labels.size());
 
         autodiff::computation_graph graph;
-        std::vector<std::shared_ptr<autodiff::op_t>> inputs;
+
+        std::vector<double> input_cat;
+        input_cat.reserve(frames.size() * frames.front().size());
 
         for (int i = 0; i < frames.size(); ++i) {
-            inputs.push_back(graph.var(la::tensor<double>(la::vector<double>(frames[i]))));
+            input_cat.insert(input_cat.end(), frames[i].begin(), frames[i].end());
         }
+
+        std::shared_ptr<autodiff::op_t> input = graph.var(
+            la::cpu::tensor<double>(la::cpu::weak_vector<double>(input_cat.data(), input_cat.size()),
+            { (unsigned int) frames.size(), (unsigned int) frames.front().size() }));
 
         std::shared_ptr<tensor_tree::vertex> var_tree = tensor_tree::make_var_tree(graph, param);
 
         std::shared_ptr<lstm::transcriber> trans
             = lstm_frame::make_transcriber(layer, dropout, &gen);
 
-#if 0
-        std::vector<std::shared_ptr<autodiff::op_t>> mask;
-        mask.resize(frames.size());
+        // std::shared_ptr<lstm::dyer_lstm_step_transcriber> step
+        //     = std::make_shared<lstm::dyer_lstm_step_transcriber>(lstm::dyer_lstm_step_transcriber{});
+        // std::shared_ptr<lstm::lstm_transcriber> trans1
+        //     = std::make_shared<lstm::lstm_transcriber>(lstm::lstm_transcriber{ step });
 
-        for (int i = 0; i < mask.size(); ++i) {
-            la::tensor<double> m;
-            m.resize({1});
-            m({0}) = 1;
-            mask[i] = graph.var(m);
-        }
-#endif
+        std::shared_ptr<autodiff::op_t> hidden;
+        std::shared_ptr<autodiff::op_t> ignore;
 
-        std::vector<std::shared_ptr<autodiff::op_t>> hidden;
-        std::vector<std::shared_ptr<autodiff::op_t>> ignore;
-
-        // std::tie(hidden, ignore) = (*trans)(var_tree->children[0], inputs, mask);
-        hidden = (*trans)(var_tree->children[0], inputs);
+        std::tie(hidden, ignore) = (*trans)(var_tree->children[0], input);
 
         trans = std::make_shared<lstm::logsoftmax_transcriber>(
             lstm::logsoftmax_transcriber { nullptr });
 
-        std::vector<std::shared_ptr<autodiff::op_t>> logprob;
-        // std::tie(logprob, ignore) = (*trans)(var_tree, hidden, mask);
-        logprob = (*trans)(var_tree, hidden);
+        std::shared_ptr<autodiff::op_t> logprob;
+        std::tie(logprob, ignore) = (*trans)(var_tree, hidden);
 
-        double loss_sum = 0;
-        double nframes = 0;
+        std::vector<double> gold_vec;
+        gold_vec.resize(labels.size() * label_id.size());
+        int nframes = 0;
 
         for (int t = 0; t < labels.size(); ++t) {
-            auto& pred = autodiff::get_output<la::tensor_like<double>>(logprob[t]);
-            la::tensor<double> gold;
-            gold.resize({(unsigned int)(label_id.size())});
             if (!ebt::in(labels[t], ignored)) {
-                gold({label_id.at(labels[t])}) = 1;
+                gold_vec[t * label_id.size() + label_id.at(labels[t])] = 1;
                 nframes += 1;
             }
-            nn::log_loss loss { gold, pred };
-            logprob[t]->grad = std::make_shared<la::tensor<double>>(loss.grad());
-
-            if (std::isnan(loss.loss())) {
-                std::cerr << "loss is nan" << std::endl;
-                exit(1);
-            }
-
-            loss_sum += loss.loss();
         }
 
-        std::cout << "loss: " << loss_sum / batch_size << std::endl;
-        std::cout << "E: " << loss_sum / nframes << std::endl;
+        la::cpu::weak_tensor<double> gold { gold_vec.data(),
+            {(unsigned int) labels.size(), (unsigned int) label_id.size()}};
+        auto& pred = autodiff::get_output<la::cpu::tensor_like<double>>(logprob);
+        nn::log_loss loss { gold, pred };
+
+        logprob->grad = std::make_shared<la::cpu::tensor<double>>(loss.grad());
+        
+        if (std::isnan(loss.loss())) {
+            std::cerr << "loss is nan" << std::endl;
+            exit(1);
+        }
+
+        std::cout << "loss: " << loss.loss() / batch_size << std::endl;
+        std::cout << "E: " << loss.loss() / nframes << std::endl;
 
         auto topo_order = autodiff::natural_topo_order(graph);
         autodiff::guarded_grad(topo_order, autodiff::grad_funcs);
@@ -289,7 +289,8 @@ void learning_env::run()
             }
 
             std::vector<std::shared_ptr<tensor_tree::vertex>> vars = tensor_tree::leaves_pre_order(param);
-            la::tensor<double> const& v = tensor_tree::get_tensor(vars.front());
+
+            la::cpu::tensor<double> const& v = tensor_tree::get_tensor(vars.front());
 
             double v1 = v.data()[0];
 
@@ -304,6 +305,7 @@ void learning_env::run()
             std::cout << std::endl;
 
         }
+
 #if DEBUG_TOP
         if (nsample >= DEBUG_TOP) {
             break;

@@ -76,60 +76,62 @@ void prediction_env::run()
     int nsample = 1;
 
     while (1) {
-        std::vector<std::vector<double>> frames;
-
-        frames = speech::load_frame_batch(frame_batch);
+        std::vector<std::vector<double>> frames = speech::load_frame_batch(frame_batch);
 
         if (!frame_batch) {
             break;
         }
 
         autodiff::computation_graph graph;
-        std::vector<std::shared_ptr<autodiff::op_t>> inputs;
+        std::vector<double> input_vec;
+        input_vec.reserve(frames.size() * frames.front().size());
 
         for (int i = 0; i < frames.size(); ++i) {
-            inputs.push_back(graph.var(la::tensor<double>(la::vector<double>(frames[i]))));
+            input_vec.insert(input_vec.end(), frames[i].begin(), frames[i].end());
         }
+
+        std::shared_ptr<autodiff::op_t> input = graph.var(
+            la::cpu::weak_tensor<double>(input_vec.data(),
+            {(unsigned int) frames.size(), (unsigned int) frames.front().size()}));
 
         std::shared_ptr<tensor_tree::vertex> var_tree = tensor_tree::make_var_tree(graph, param);
 
         std::shared_ptr<lstm::transcriber> trans
             = lstm_frame::make_transcriber(layer, 0.0, nullptr);
 
-        std::vector<std::shared_ptr<autodiff::op_t>> output;
+        std::shared_ptr<autodiff::op_t> output;
+        std::shared_ptr<autodiff::op_t> ignore;
 
         if (ebt::in(std::string("print-hidden"), args)) {
-            output = (*trans)(var_tree->children[0], inputs);
+            std::tie(output, ignore) = (*trans)(var_tree->children[0], input);
         } else {
             trans = std::make_shared<lstm::logsoftmax_transcriber>(
                 lstm::logsoftmax_transcriber { trans });
-            output = (*trans)(var_tree, inputs);
+            std::tie(output, ignore) = (*trans)(var_tree, input);
         }
 
         std::cout << nsample << ".phn" << std::endl;
 
+        auto& output_t = autodiff::get_output<la::cpu::tensor_like<double>>(output);
+
         if (ebt::in(std::string("print-logprob"), args) || ebt::in(std::string("print-hidden"), args)) {
-            for (int t = 0; t < output.size(); ++t) {
-                auto& pred = autodiff::get_output<la::tensor_like<double>>(output[t]);
+            for (int t = 0; t < output_t.size(0); ++t) {
+                std::cout << output_t({t, 0});
 
-                std::cout << pred({0});
-
-                for (int j = 1; j < pred.vec_size(); ++j) {
-                    std::cout << " " << pred({j});
+                for (int j = 1; j < output_t.size(1); ++j) {
+                    std::cout << " " << output_t({t, j});
                 }
 
                 std::cout << std::endl;
             }
         } else {
-            for (int t = 0; t < output.size(); ++t) {
-                auto& pred = autodiff::get_output<la::tensor_like<double>>(output[t]);
-
+            for (int t = 0; t < output_t.size(0); ++t) {
                 int argmax = -1;
                 double max = -std::numeric_limits<double>::infinity();
 
-                for (int j = 0; j < pred.vec_size(); ++j) {
-                    if (pred({j}) > max) {
-                        max = pred({j});
+                for (int j = 0; j < output_t.size(1); ++j) {
+                    if (output_t({t, j}) > max) {
+                        max = output_t({t, j});
                         argmax = j;
                     }
                 }
