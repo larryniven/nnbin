@@ -1,4 +1,4 @@
-#include "la/la.h"
+#include "la/la-cpu.h"
 #include "autodiff/autodiff.h"
 #include "ebt/ebt.h"
 #include "speech/speech.h"
@@ -218,6 +218,8 @@ void learning_env::run()
             la::cpu::tensor<double>(la::cpu::weak_vector<double>(input_cat.data(), input_cat.size()),
             { (unsigned int) frames.size(), (unsigned int) frames.front().size() }));
 
+        input->grad_needed = false;
+
         std::shared_ptr<tensor_tree::vertex> var_tree = tensor_tree::make_var_tree(graph, param);
 
         std::shared_ptr<lstm::transcriber> trans
@@ -227,10 +229,13 @@ void learning_env::run()
         //     = std::make_shared<lstm::dyer_lstm_step_transcriber>(lstm::dyer_lstm_step_transcriber{});
         // std::shared_ptr<lstm::lstm_transcriber> trans1
         //     = std::make_shared<lstm::lstm_transcriber>(lstm::lstm_transcriber{ step });
+        // std::shared_ptr<lstm::input_dropout_transcriber> trans2
+        //     = std::make_shared<lstm::input_dropout_transcriber>(lstm::input_dropout_transcriber{ trans1, dropout, gen });
 
         std::shared_ptr<autodiff::op_t> hidden;
         std::shared_ptr<autodiff::op_t> ignore;
 
+        // std::tie(hidden, ignore) = (*trans2)(var_tree->children[0]->children[0]->children[0], input);
         std::tie(hidden, ignore) = (*trans)(var_tree->children[0], input);
 
         trans = std::make_shared<lstm::logsoftmax_transcriber>(
@@ -257,16 +262,29 @@ void learning_env::run()
 
         logprob->grad = std::make_shared<la::cpu::tensor<double>>(loss.grad());
         
-        if (std::isnan(loss.loss())) {
+        double ell = loss.loss();
+
+        if (std::isnan(ell)) {
             std::cerr << "loss is nan" << std::endl;
             exit(1);
         }
 
-        std::cout << "loss: " << loss.loss() / batch_size << std::endl;
-        std::cout << "E: " << loss.loss() / nframes << std::endl;
+        std::cout << "loss: " << ell / batch_size << std::endl;
+        std::cout << "E: " << ell / nframes << std::endl;
 
         auto topo_order = autodiff::natural_topo_order(graph);
         autodiff::guarded_grad(topo_order, autodiff::grad_funcs);
+
+#if 0
+        auto& t = autodiff::get_grad<la::cpu::tensor_like<double>>(trans1->debug);
+        for (int i = 0; i < t.size(0); ++i) {
+            for (int j = 0; j < t.size(1); ++j) {
+                std::cout << t({i, j}) << " ";
+            }
+            std::cout << std::endl;
+        }
+        std::cout << std::endl;
+#endif
 
         std::shared_ptr<tensor_tree::vertex> grad = lstm_frame::make_tensor_tree(layer);
         tensor_tree::copy_grad(grad, var_tree);
@@ -300,19 +318,19 @@ void learning_env::run()
 
             double v2 = v.data()[0];
 
-            std::cout << "weight: " << v1 << " update: " << v2 - v1 << " rate: " << (v2 - v1) / v1 << std::endl;
+            std::cout << "name: " << vars.front()->name << " weight: " << v1 << " update: " << v2 - v1 << " rate: " << (v2 - v1) / v1 << std::endl;
 
             std::cout << std::endl;
 
         }
+
+        ++nsample;
 
 #if DEBUG_TOP
         if (nsample >= DEBUG_TOP) {
             break;
         }
 #endif
-
-        ++nsample;
     }
 
     std::ofstream param_ofs { output_param };

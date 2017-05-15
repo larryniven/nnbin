@@ -1,4 +1,4 @@
-#include "la/la.h"
+#include "la/la-cpu.h"
 #include "autodiff/autodiff.h"
 #include "ebt/ebt.h"
 #include "speech/speech.h"
@@ -194,6 +194,8 @@ learning_env::learning_env(std::unordered_map<std::string, std::string> args)
 
 void learning_env::run()
 {
+    ebt::Timer timer;
+
     int nsample = 0;
 
     while (nsample < frame_batch.pos.size()) {
@@ -216,6 +218,7 @@ void learning_env::run()
         std::cout << std::endl;
         std::cout << "rand state: "<< gen << std::endl;
 
+#if 0
         std::ofstream param_ofs { "param-debug" };
         param_ofs << layer << std::endl;
         tensor_tree::save_tensor(param, param_ofs);
@@ -225,9 +228,9 @@ void learning_env::run()
         opt_data_ofs << layer << std::endl;
         opt->save_opt_data(opt_data_ofs);
         opt_data_ofs.close();
+#endif
 
         autodiff::computation_graph graph;
-        std::vector<std::shared_ptr<autodiff::op_t>> inputs;
 
         unsigned int max_len = 0;
 
@@ -243,92 +246,91 @@ void learning_env::run()
 
         unsigned int ndim = frames.front().front().size();
 
-        for (int t = 0; t < max_len; ++t) {
-            std::vector<double> frames_t;
+        std::vector<double> input_vec;
+        input_vec.reserve(max_len * batch_size_local * ndim);
 
+        std::vector<double> zeros;
+        zeros.resize(ndim);
+
+        for (int t = 0; t < max_len; ++t) {
             for (int b = 0; b < batch_size_local; ++b) {
                 if (t < frames[b].size()) {
                     assert(frames[b][t].size() == ndim);
-                    frames_t.insert(frames_t.end(), frames[b][t].begin(), frames[b][t].end());
+                    input_vec.insert(input_vec.end(), frames[b][t].begin(), frames[b][t].end());
                 } else {
-                    std::vector<double> zeros;
-                    zeros.resize(ndim);
-
-                    frames_t.insert(frames_t.end(), zeros.begin(), zeros.end());
+                    input_vec.insert(input_vec.end(), zeros.begin(), zeros.end());
                 }
             }
-
-            inputs.push_back(graph.var(la::tensor<double>(la::vector<double>(frames_t),
-                {batch_size_local, ndim})));
         }
 
-        std::vector<std::shared_ptr<autodiff::op_t>> mask;
+        std::shared_ptr<autodiff::op_t> input = graph.var(la::cpu::tensor<double>(
+            la::cpu::weak_tensor<double>(input_vec.data(), {max_len, batch_size_local, ndim})));
+
+        input->grad_needed = false;
+
+        std::vector<double> mask_vec;
+        mask_vec.reserve(max_len * batch_size_local);
 
         for (int t = 0; t < max_len; ++t) {
-            std::vector<double> mask_t;
-
             for (int b = 0; b < batch_size_local; ++b) {
                 if (t < frames[b].size()) {
-                    mask_t.push_back(1);
+                    mask_vec.push_back(1);
                 } else {
-                    mask_t.push_back(0);
+                    mask_vec.push_back(0);
                 }
             }
-
-            mask.push_back(graph.var(la::tensor<double>(la::vector<double>(mask_t), {batch_size_local})));
         }
+
+        std::shared_ptr<autodiff::op_t> mask = graph.var(la::cpu::tensor<double>(
+            la::cpu::weak_tensor<double>(mask_vec.data(), {max_len, batch_size_local})));
+
+        mask->grad_needed = false;
 
         std::shared_ptr<tensor_tree::vertex> var_tree = tensor_tree::make_var_tree(graph, param);
 
         std::shared_ptr<lstm::transcriber> trans
             = lstm_frame::make_transcriber(layer, dropout, &gen);
 
-        std::vector<std::shared_ptr<autodiff::op_t>> hidden;
-        std::vector<std::shared_ptr<autodiff::op_t>> ignore;
+        std::shared_ptr<autodiff::op_t> hidden;
+        std::shared_ptr<autodiff::op_t> ignore;
 
-        std::tie(hidden, ignore) = (*trans)(var_tree->children[0], inputs, mask);
+        std::tie(hidden, ignore) = (*trans)(var_tree->children[0], input, mask);
 
         trans = std::make_shared<lstm::logsoftmax_transcriber>(
             lstm::logsoftmax_transcriber { nullptr });
 
-        std::vector<std::shared_ptr<autodiff::op_t>> logprob;
+        std::shared_ptr<autodiff::op_t> logprob;
 
         std::tie(logprob, ignore) = (*trans)(var_tree, hidden, mask);
 
-        double loss_sum = 0;
         int nframes = 0;
 
+        la::cpu::tensor<double> gold;
+        gold.resize({max_len, batch_size_local, (unsigned int) label_id.size()});
+
         for (int t = 0; t < max_len; ++t) {
-            la::tensor<double> gold;
-            gold.resize({(unsigned int) labels.size(), (unsigned int) label_id.size()});
-
-            for (int b = 0; b < labels.size(); ++b) {
-                if (t < labels[b].size() && !ebt::in(labels[b][t], ignored)) {
-                    gold({b, label_id.at(labels[b][t])}) = 1;
-                }
-            }
-
-            auto& pred = autodiff::get_output<la::tensor_like<double>>(logprob[t]);
-
-            nn::log_loss loss { gold, pred };
-            logprob[t]->grad = std::make_shared<la::tensor<double>>(loss.grad());
-
-            if (std::isnan(loss.loss())) {
-                std::cerr << "loss is nan" << std::endl;
-                exit(1);
-            }
-
-            loss_sum += loss.loss();
-
             for (int b = 0; b < batch_size_local; ++b) {
                 if (t < labels[b].size() && !ebt::in(labels[b][t], ignored)) {
+                    gold({t, b, label_id.at(labels[b][t])}) = 1;
                     nframes += 1;
                 }
             }
         }
 
-        std::cout << "loss: " << loss_sum / batch_size_local << std::endl;
-        std::cout << "E: " << loss_sum / nframes << std::endl;
+        auto& pred = autodiff::get_output<la::cpu::tensor_like<double>>(logprob);
+
+        nn::log_loss loss { gold, pred };
+        logprob->grad = std::make_shared<la::cpu::tensor<double>>(loss.grad());
+
+        double ell = loss.loss();
+
+        if (std::isnan(ell)) {
+            std::cerr << "loss is nan" << std::endl;
+            exit(1);
+        }
+
+        std::cout << "loss: " << ell / batch_size_local << std::endl;
+        std::cout << "E: " << ell / nframes << std::endl;
 
         auto topo_order = autodiff::natural_topo_order(graph);
         autodiff::guarded_grad(topo_order, autodiff::grad_funcs);
@@ -361,7 +363,7 @@ void learning_env::run()
         }
 
         std::vector<std::shared_ptr<tensor_tree::vertex>> vars = tensor_tree::leaves_pre_order(param);
-        la::tensor<double> const& v = tensor_tree::get_tensor(vars.front());
+        la::cpu::tensor<double> const& v = tensor_tree::get_tensor(vars.front());
 
         double v1 = v.data()[0];
 
@@ -373,13 +375,13 @@ void learning_env::run()
 
         std::cout << std::endl;
 
+        nsample += batch_size_local;
+
 #if DEBUG_TOP
         if (nsample >= DEBUG_TOP) {
             break;
         }
 #endif
-
-        nsample += batch_size_local;
     }
 
     std::ofstream param_ofs { output_param };
