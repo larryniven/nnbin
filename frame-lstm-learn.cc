@@ -164,7 +164,6 @@ learning_env::learning_env(std::unordered_map<std::string, std::string> args)
     gen = std::default_random_engine { seed };
 
     std::ifstream opt_data_ifs { args.at("opt-data") };
-    std::getline(opt_data_ifs, line);
     opt->load_opt_data(opt_data_ifs);
     opt_data_ifs.close();
 
@@ -225,17 +224,9 @@ void learning_env::run()
         std::shared_ptr<lstm::transcriber> trans
             = lstm_frame::make_transcriber(layer, dropout, &gen);
 
-        // std::shared_ptr<lstm::dyer_lstm_step_transcriber> step
-        //     = std::make_shared<lstm::dyer_lstm_step_transcriber>(lstm::dyer_lstm_step_transcriber{});
-        // std::shared_ptr<lstm::lstm_transcriber> trans1
-        //     = std::make_shared<lstm::lstm_transcriber>(lstm::lstm_transcriber{ step });
-        // std::shared_ptr<lstm::input_dropout_transcriber> trans2
-        //     = std::make_shared<lstm::input_dropout_transcriber>(lstm::input_dropout_transcriber{ trans1, dropout, gen });
-
         std::shared_ptr<autodiff::op_t> hidden;
         std::shared_ptr<autodiff::op_t> ignore;
 
-        // std::tie(hidden, ignore) = (*trans2)(var_tree->children[0]->children[0]->children[0], input);
         std::tie(hidden, ignore) = (*trans)(var_tree->children[0], input);
 
         trans = std::make_shared<lstm::logsoftmax_transcriber>(
@@ -339,7 +330,6 @@ void learning_env::run()
     param_ofs.close();
 
     std::ofstream opt_data_ofs { output_opt_data };
-    opt_data_ofs << layer << std::endl;
     opt->save_opt_data(opt_data_ofs);
     opt_data_ofs.close();
 }

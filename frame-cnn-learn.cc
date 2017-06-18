@@ -4,28 +4,12 @@
 #include "speech/speech.h"
 #include <fstream>
 #include <vector>
-#include "nn/lstm.h"
 #include "nn/nn.h"
 #include <random>
 #include "nn/tensor-tree.h"
 #include "nn/cnn.h"
+#include "nn/cnn-frame.h"
 #include <algorithm>
-
-std::shared_ptr<tensor_tree::vertex> make_tensor_tree(int conv_layer, int fc_layer)
-{
-    tensor_tree::vertex root { "nil" };
-
-    root.children.push_back(cnn::make_cnn_tensor_tree(conv_layer));
-
-    for (int i = 0; i < fc_layer; ++i) {
-        tensor_tree::vertex fc { "nil" };
-        fc.children.push_back(tensor_tree::make_tensor("softmax weight"));
-        fc.children.push_back(tensor_tree::make_tensor("softmax bias"));
-        root.children.push_back(std::make_shared<tensor_tree::vertex>(fc));
-    }
-
-    return std::make_shared<tensor_tree::vertex>(root);
-}
 
 struct learning_env {
 
@@ -38,8 +22,7 @@ struct learning_env {
 
     std::shared_ptr<tensor_tree::vertex> var_tree;
 
-    int conv_layer;
-    int fc_layer;
+    cnn::cnn_t cnn_config;
 
     double step_size;
     double decay;
@@ -76,17 +59,18 @@ int main(int argc, char *argv[])
             {"label-batch", "", true},
             {"param", "", true},
             {"opt-data", "", true},
-            {"step-size", "", true},
-            {"decay", "", false},
             {"output-param", "", false},
             {"output-opt-data", "", false},
-            {"clip", "", false},
             {"label", "", true},
             {"ignore", "", false},
             {"dropout", "", false},
             {"seed", "", false},
             {"shuffle", "", false},
-            {"const-step-update"},
+            {"opt", "const-step,adagrad,rmsprop,adam", true},
+            {"step-size", "", true},
+            {"momentum", "", false},
+            {"clip", "", false},
+            {"decay", "", false},
         }
     };
 
@@ -115,15 +99,9 @@ learning_env::learning_env(std::unordered_map<std::string, std::string> args)
     frame_batch.open(args.at("frame-batch"));
     label_batch.open(args.at("label-batch"));
 
-    std::string line;
-
     std::ifstream param_ifs { args.at("param") };
-    std::getline(param_ifs, line);
-    std::vector<std::string> parts = ebt::split(line);
-    conv_layer = std::stoi(parts[0]);
-    fc_layer = std::stoi(parts[1]);
-    param = make_tensor_tree(conv_layer, fc_layer);
-    tensor_tree::load_tensor(param, param_ifs);
+    cnn_config = cnn::load_param(param_ifs);
+    param = cnn_config.param;
     param_ifs.close();
 
     step_size = std::stod(args.at("step-size"));
@@ -157,27 +135,36 @@ learning_env::learning_env(std::unordered_map<std::string, std::string> args)
         ignored.insert(parts.begin(), parts.end());
     }
 
+    dropout = 0;
     if (ebt::in(std::string("dropout"), args)) {
         dropout = std::stod(args.at("dropout"));
     }
 
+    seed = 1;
     if (ebt::in(std::string("seed"), args)) {
         seed = std::stoi(args.at("seed"));
     }
 
-    if (ebt::in(std::string("decay"), args)) {
+    if (args.at("opt") == "rmsprop") {
+        double decay = std::stod(args.at("decay"));
         opt = std::make_shared<tensor_tree::rmsprop_opt>(
-            tensor_tree::rmsprop_opt(param, decay, step_size));
-    } else if (ebt::in(std::string("const-step-update"), args)) {
+            tensor_tree::rmsprop_opt(param, step_size, decay));
+    } else if (args.at("opt") == "const-step") {
         opt = std::make_shared<tensor_tree::const_step_opt>(
             tensor_tree::const_step_opt(param, step_size));
-    } else {
+    } else if (args.at("opt") == "const-step-momentum") {
+        double momentum = std::stod(args.at("momentum"));
+        opt = std::make_shared<tensor_tree::const_step_momentum_opt>(
+            tensor_tree::const_step_momentum_opt(param, step_size, momentum));
+    } else if (args.at("opt") == "adagrad") {
         opt = std::make_shared<tensor_tree::adagrad_opt>(
             tensor_tree::adagrad_opt(param, step_size));
+    } else {
+        std::cout << "unknown optimizer " << args.at("opt") << std::endl;
+        exit(1);
     }
 
     std::ifstream opt_data_ifs { args.at("opt-data") };
-    std::getline(opt_data_ifs, line);
     opt->load_opt_data(opt_data_ifs);
     opt_data_ifs.close();
 
@@ -224,169 +211,68 @@ void learning_env::run()
         autodiff::computation_graph graph;
         var_tree = tensor_tree::make_var_tree(graph, param);
 
-        la::tensor<double> input_tensor;
-        input_tensor.resize({ (unsigned int) frames.size(), (unsigned int) frames.front().size(), 1});
+        la::cpu::tensor<double> input_tensor;
+        input_tensor.resize({ (unsigned int) frames.size(), 40, 3});
 
         for (int t = 0; t < frames.size(); ++t) {
             for (int i = 0; i < frames.front().size(); ++i) {
-                input_tensor({t, i, 0}) = frames[t][i];
+                input_tensor({t, i % 40, i / 40}) = frames[t][i];
             }
         }
 
         std::shared_ptr<autodiff::op_t> input = graph.var(input_tensor);
 
-        cnn::multilayer_transcriber trans;
+        std::shared_ptr<cnn::transcriber> trans = cnn::make_transcriber(cnn_config, dropout, &gen);
+        std::shared_ptr<autodiff::op_t> hidden = (*trans)(var_tree, input);
 
-        for (int i = 0; i < conv_layer; ++i) {
-            trans.layers.push_back(std::make_shared<cnn::cnn_transcriber>(
-                cnn::cnn_transcriber{}));
+        auto& t = autodiff::get_output<la::cpu::tensor_like<double>>(hidden);
+
+        std::cout << std::endl;
+        for (int i = 0; i < 20; ++i) {
+            for (int j = 0; j < 40; ++j) {
+                std::cout << t({i, j}) << " ";
+            }
+            std::cout << std::endl;
         }
+        std::cout << std::endl;
 
-        std::shared_ptr<autodiff::op_t> feat = trans(input, var_tree->children[0]);
+        trans = std::make_shared<cnn::logsoftmax_transcriber>(
+            cnn::logsoftmax_transcriber{});
 
-        auto& t = tensor_tree::get_tensor(param->children[0]->children.back()->children.back());
+        std::shared_ptr<autodiff::op_t> logprob = (*trans)(var_tree->children.back(), hidden);
 
-        feat = autodiff::reshape(feat,
-            { (unsigned int) frames.size(), (unsigned int) frames.front().size() * t.size(0) });
+        std::vector<double> gold_vec;
+        gold_vec.resize(labels.size() * label_id.size());
+        int nframes = 0;
 
-        std::vector<std::shared_ptr<autodiff::op_t>> logprob;
-
-        for (int t = 0; t < frames.size(); ++t) {
-            std::shared_ptr<autodiff::op_t> feat_t = autodiff::row_at(feat, t);
-
-            for (int i = 0; i < fc_layer - 1; ++i) {
-                if (ebt::in(std::string("dropout"), args)) {
-                    feat_t = autodiff::emul(feat_t, autodiff::dropout_mask(feat_t, dropout, gen));
-                }
-
-                feat_t = autodiff::relu(autodiff::add(
-                    autodiff::mul(feat_t, tensor_tree::get_var(var_tree->children[i + 1]->children[0])),
-                    tensor_tree::get_var(var_tree->children[i + 1]->children[1])
-                ));
-            }
-
-            logprob.push_back(autodiff::logsoftmax(
-                autodiff::add(
-                    autodiff::mul(feat_t,
-                        tensor_tree::get_var(var_tree->children[fc_layer]->children[0])),
-                    tensor_tree::get_var(var_tree->children[fc_layer]->children[1])
-                )
-            ));
-        }
-
-        double loss_sum = 0;
-        double nframes = 0;
-
-        auto topo_order = autodiff::topo_order(logprob);
-        // autodiff::eval(topo_order, autodiff::eval_funcs);
-
-#if DEBUG 
-        {
-            if (ebt::in(labels[0], ignored)) {
-                continue;
-            }
-
-            auto& pred = autodiff::get_output<la::tensor_like<double>>(logprob[0]);
-
-            la::tensor<double> gold;
-            gold.resize({(unsigned int) label_id.size()});
-            gold({label_id.at(labels[0])}) = 1;
-
-            nn::log_loss loss { gold, pred };
-
-            auto param2 = tensor_tree::copy_tree(param);
-
-            auto pre_order = leaves_pre_order(param2);
-            auto& t = tensor_tree::get_tensor(pre_order[3]);
-            t.data()[0] += 1e-8;
-
-            autodiff::computation_graph graph2;
-            auto var_tree2 = tensor_tree::make_var_tree(graph2, param2);
-
-            std::shared_ptr<autodiff::op_t> input2 = graph2.var(input_tensor);
-
-            cnn::multilayer_transcriber trans2;
-
-            for (int i = 0; i < layer; ++i) {
-                if (ebt::in(std::string("dropout"), args)) {
-                    trans2.layers.push_back(std::make_shared<cnn::dropout_transcriber>(
-                        cnn::dropout_transcriber {
-                            std::make_shared<cnn::cnn_transcriber>(cnn::cnn_transcriber{}),
-                            dropout, gen
-                        }
-                    ));
-                } else {
-                    trans2.layers.push_back(std::make_shared<cnn::cnn_transcriber>(
-                        cnn::cnn_transcriber{}));
-                }
-            }
-
-            std::shared_ptr<autodiff::op_t> feat2 = trans(input2, var_tree2->children[0]);
-
-            auto& t2 = tensor_tree::get_tensor(param2->children[0]->children.back()->children.back());
-
-            feat2 = autodiff::reshape(feat2,
-                { (unsigned int) frames.size(), (unsigned int) frames.front().size() * t2.size(0) });
-
-            std::vector<std::shared_ptr<autodiff::op_t>> logprob2;
-            for (int t = 0; t < frames.size(); ++t) {
-                logprob2.push_back(autodiff::logsoftmax(autodiff::add(
-                    tensor_tree::get_var(var_tree2->children[2]),
-                    autodiff::mul(autodiff::row_at(feat2, t), tensor_tree::get_var(var_tree2->children[1]))
-                )));
-            }
-
-            auto topo_order2 = autodiff::topo_order(logprob2);
-            // autodiff::eval(topo_order2, autodiff::eval_funcs);
-
-            auto& pred2 = autodiff::get_output<la::tensor_like<double>>(logprob2[0]);
-
-            nn::log_loss loss2 { gold, pred2 };
-
-            std::cout << "numeric grad: " << (loss2.loss() - loss.loss()) / 1e-8 << std::endl;
-
-            logprob[0]->grad = std::make_shared<la::tensor<double>>(loss.grad());
-            autodiff::grad(logprob[0], autodiff::grad_funcs);
-
-            std::shared_ptr<tensor_tree::vertex> grad = make_tensor_tree(conv_layer, fc_layer);
-            tensor_tree::copy_grad(grad, var_tree);
-            auto grad_pre_order = leaves_pre_order(grad);
-
-            auto& g_t = tensor_tree::get_tensor(grad_pre_order[3]);
-            std::cout << "analytic grad: " << g_t.data()[0] << std::endl;
-
-            continue;
-        }
-#endif
-
-        for (int t = 0; t < frames.size(); ++t) {
-            auto& pred = autodiff::get_output<la::tensor_like<double>>(logprob[t]);
-
-            la::tensor<double> gold;
-            gold.resize({(unsigned int) label_id.size()});
-
+        for (int t = 0; t < labels.size(); ++t) {
             if (!ebt::in(labels[t], ignored)) {
-                gold({label_id.at(labels[t])}) = 1;
+                gold_vec[t * label_id.size() + label_id.at(labels[t])] = 1;
                 nframes += 1;
             }
-
-            nn::log_loss loss { gold, pred };
-
-            if (std::isnan(loss.loss())) {
-                std::cerr << "loss is nan" << std::endl;
-                exit(1);
-            } else {
-                loss_sum += loss.loss();
-            }
-
-            logprob[t]->grad = std::make_shared<la::tensor<double>>(loss.grad());
         }
 
-        autodiff::grad(topo_order, autodiff::grad_funcs);
+        la::cpu::weak_tensor<double> gold { gold_vec.data(),
+            {(unsigned int) labels.size(), (unsigned int) label_id.size()}};
+        auto& pred = autodiff::get_output<la::cpu::tensor_like<double>>(logprob);
+        nn::log_loss loss { gold, pred };
 
-        std::cout << "loss: " << loss_sum / nframes << std::endl;
+        logprob->grad = std::make_shared<la::cpu::tensor<double>>(loss.grad());
+        
+        double ell = loss.loss();
 
-        std::shared_ptr<tensor_tree::vertex> grad = make_tensor_tree(conv_layer, fc_layer);
+        if (std::isnan(ell)) {
+            std::cerr << "loss is nan" << std::endl;
+            exit(1);
+        }
+
+        std::cout << "loss: " << ell << std::endl;
+        std::cout << "E: " << ell / nframes << std::endl;
+
+        auto topo_order = autodiff::natural_topo_order(graph);
+        autodiff::guarded_grad(topo_order, autodiff::grad_funcs);
+
+        std::shared_ptr<tensor_tree::vertex> grad = cnn::make_tensor_tree(cnn_config.conv_layer, cnn_config.fc_layer);
         tensor_tree::copy_grad(grad, var_tree);
 
         double n = tensor_tree::norm(grad);
@@ -401,7 +287,7 @@ void learning_env::run()
         }
 
         std::vector<std::shared_ptr<tensor_tree::vertex>> vars = tensor_tree::leaves_pre_order(param);
-        la::tensor<double> const& v = tensor_tree::get_tensor(vars.front());
+        la::cpu::tensor<double> const& v = tensor_tree::get_tensor(vars.front());
 
         double v1 = v.data()[0];
 
@@ -409,7 +295,7 @@ void learning_env::run()
 
         double v2 = v.data()[0];
 
-        std::cout << "weight: " << v1 << " update: " << v2 - v1 << " rate: " << (v2 - v1) / v1 << std::endl;
+        std::cout << vars.front()->name << " weight: " << v1 << " update: " << v2 - v1 << " rate: " << (v2 - v1) / v1 << std::endl;
 
         std::cout << std::endl;
 
@@ -423,12 +309,10 @@ void learning_env::run()
     }
 
     std::ofstream param_ofs { output_param };
-    param_ofs << conv_layer << " " << fc_layer << std::endl;
-    tensor_tree::save_tensor(param, param_ofs);
+    cnn::save_param(cnn_config, param_ofs);
     param_ofs.close();
 
     std::ofstream opt_data_ofs { output_opt_data };
-    opt_data_ofs << conv_layer << " " << fc_layer << std::endl;
     opt->save_opt_data(opt_data_ofs);
     opt_data_ofs.close();
 }

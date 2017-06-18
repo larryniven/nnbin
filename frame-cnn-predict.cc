@@ -9,26 +9,13 @@
 #include <random>
 #include "nn/tensor-tree.h"
 #include "nn/cnn.h"
-
-std::shared_ptr<tensor_tree::vertex> make_tensor_tree(int conv_layer, int fc_layer)
-{
-    tensor_tree::vertex root { "nil" };
-
-    root.children.push_back(cnn::make_cnn_tensor_tree(conv_layer));
-
-    for (int i = 0; i < fc_layer; ++i) {
-        tensor_tree::vertex fc { "nil" };
-        fc.children.push_back(tensor_tree::make_tensor("softmax weight"));
-        fc.children.push_back(tensor_tree::make_tensor("softmax bias"));
-        root.children.push_back(std::make_shared<tensor_tree::vertex>(fc));
-    }
-
-    return std::make_shared<tensor_tree::vertex>(root);
-}
+#include "nn/cnn-frame.h"
 
 struct prediction_env {
 
     std::ifstream frame_batch;
+
+    cnn::cnn_t cnn_config;
 
     std::shared_ptr<tensor_tree::vertex> param;
 
@@ -87,12 +74,8 @@ prediction_env::prediction_env(std::unordered_map<std::string, std::string> args
     std::string line;
 
     std::ifstream param_ifs { args.at("param") };
-    std::getline(param_ifs, line);
-    std::vector<std::string> parts = ebt::split(line);
-    conv_layer = std::stoi(parts[0]);
-    fc_layer = std::stoi(parts[1]);
-    param = make_tensor_tree(conv_layer, fc_layer);
-    tensor_tree::load_tensor(param, param_ifs);
+    cnn_config = cnn::load_param(param_ifs);
+    param = cnn_config.param;
     param_ifs.close();
 
     id_label = speech::load_label_set(args.at("label"));
@@ -121,67 +104,34 @@ void prediction_env::run()
         autodiff::computation_graph graph;
         var_tree = tensor_tree::make_var_tree(graph, param);
 
-        la::tensor<double> input_tensor;
-        input_tensor.resize({ (unsigned int) frames.size(), (unsigned int) frames.front().size(), 1});
+        la::cpu::tensor<double> input_tensor;
+        input_tensor.resize({ (unsigned int) frames.size(), 40, 3});
 
         for (int t = 0; t < frames.size(); ++t) {
             for (int i = 0; i < frames.front().size(); ++i) {
-                input_tensor({t, i, 0}) = frames[t][i];
+                input_tensor({t, i % 40, i / 40}) = frames[t][i];
             }
         }
 
         std::shared_ptr<autodiff::op_t> input = graph.var(input_tensor);
 
-        cnn::multilayer_transcriber trans;
+        std::shared_ptr<cnn::transcriber> trans = cnn::make_transcriber(cnn_config, 0.0, nullptr);
+        std::shared_ptr<autodiff::op_t> hidden = (*trans)(var_tree, input);
 
-        for (int i = 0; i < conv_layer; ++i) {
-            trans.layers.push_back(std::make_shared<cnn::cnn_transcriber>(
-                cnn::cnn_transcriber{}));
-        }
+        trans = std::make_shared<cnn::logsoftmax_transcriber>(
+            cnn::logsoftmax_transcriber{});
 
-        std::shared_ptr<autodiff::op_t> feat = trans(input, var_tree->children[0]);
+        std::shared_ptr<autodiff::op_t> logprob = (*trans)(var_tree->children.back(), hidden);
 
-        auto& t = tensor_tree::get_tensor(param->children[0]->children.back()->children.back());
-
-        feat = autodiff::reshape(feat,
-            { (unsigned int) frames.size(), (unsigned int) frames.front().size() * t.size(0) });
-
-        std::vector<std::shared_ptr<autodiff::op_t>> logprob;
+        auto& pred = autodiff::get_output<la::cpu::tensor_like<double>>(logprob);
 
         for (int t = 0; t < frames.size(); ++t) {
-            std::shared_ptr<autodiff::op_t> feat_t = autodiff::row_at(feat, t);
-
-            for (int i = 0; i < fc_layer - 1; ++i) {
-                feat_t = autodiff::relu(autodiff::add(
-                    autodiff::mul(feat_t, tensor_tree::get_var(var_tree->children[i + 1]->children[0])),
-                    tensor_tree::get_var(var_tree->children[i + 1]->children[1])
-                ));
-            }
-
-            logprob.push_back(autodiff::logsoftmax(
-                autodiff::add(
-                    autodiff::mul(feat_t,
-                        tensor_tree::get_var(var_tree->children[fc_layer]->children[0])),
-                    tensor_tree::get_var(var_tree->children[fc_layer]->children[1])
-                )
-            ));
-        }
-
-        double loss_sum = 0;
-        double nframes = 0;
-
-        // auto topo_order = autodiff::topo_order(logprob);
-        // autodiff::eval(topo_order, autodiff::eval_funcs);
-
-        for (int t = 0; t < frames.size(); ++t) {
-            auto& pred = autodiff::get_output<la::tensor_like<double>>(logprob[t]);
-
             double max = -std::numeric_limits<double>::infinity();
             unsigned int argmax;
 
-            for (int i = 0; i < pred.vec_size(); ++i) {
-                if (pred({i}) > max) {
-                    max = pred({i});
+            for (int i = 0; i < pred.size(1); ++i) {
+                if (pred({t, i}) > max) {
+                    max = pred({t, i});
                     argmax = i;
                 }
             }

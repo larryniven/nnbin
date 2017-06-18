@@ -8,8 +8,9 @@ bin = \
     frame-lstm-learn-batch \
     frame-lstm-predict \
     frame-cnn-learn \
-    frame-cnn-predict \
-    frame-lstm-learn-batch-gpu \
+    frame-cnn-predict
+
+    # frame-lstm-learn-batch-gpu \
 
     # learn \
     # predict \
@@ -51,10 +52,10 @@ predict: predict.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lopt -lla -lebt -lblas
 
 frame-lstm-learn-batch: frame-lstm-learn-batch.o
-	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lopenblas
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
 
 frame-lstm-learn: frame-lstm-learn.o
-	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lopenblas
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
 
 frame-lstm-learn-batch-gpu.o: frame-lstm-learn-batch-gpu.cu
 	nvcc $(NVCCFLAGS) -c frame-lstm-learn-batch-gpu.cu
