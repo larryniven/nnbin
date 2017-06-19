@@ -29,6 +29,8 @@ struct learning_env {
     double step_size;
     double clip;
 
+    int input_dim;
+
     int batch_size;
     std::vector<int> indices;
 
@@ -56,16 +58,17 @@ int main(int argc, char *argv[])
             {"label-batch", "", true},
             {"param", "", true},
             {"opt-data", "", true},
-            {"step-size", "", true},
             {"output-param", "", false},
             {"output-opt-data", "", false},
             {"label", "", true},
             {"ignore", "", false},
+            {"input-dim", "", true},
             {"dropout", "", false},
             {"shuffle", "", false},
             {"seed", "", false},
             {"batch-size", "", false},
             {"opt", "const-step,rmsprop,adagrad", true},
+            {"step-size", "", true},
             {"clip", "", false},
             {"decay", "", false},
         }
@@ -142,6 +145,8 @@ learning_env::learning_env(std::unordered_map<std::string, std::string> args)
         seed = std::stoi(args.at("seed"));
     }
 
+    input_dim = std::stoi(args.at("input-dim"));
+
     batch_size = 1;
     if (ebt::in(std::string("batch-size"), args)) {
         batch_size = std::stoi(args.at("batch-size"));
@@ -207,22 +212,30 @@ void learning_env::run()
         autodiff::computation_graph graph;
 
         std::vector<double> input_cat;
-        input_cat.reserve(frames.size() * frames.front().size());
+        input_cat.reserve(frames.size() * input_dim);
+
+        assert(input_dim >= frames.front().size());
 
         for (int i = 0; i < frames.size(); ++i) {
-            input_cat.insert(input_cat.end(), frames[i].begin(), frames[i].end());
+            for (int j = 0; j < input_dim; ++j) {
+                if (j < frames[i].size()) {
+                    input_cat.push_back(frames[i][j]);
+                } else {
+                    input_cat.push_back(0);
+                }
+            }
         }
 
         std::shared_ptr<autodiff::op_t> input = graph.var(
             la::cpu::tensor<double>(la::cpu::weak_vector<double>(input_cat.data(), input_cat.size()),
-            { (unsigned int) frames.size(), (unsigned int) frames.front().size() }));
+            { (unsigned int) frames.size(), (unsigned int) input_dim }));
 
         input->grad_needed = false;
 
         std::shared_ptr<tensor_tree::vertex> var_tree = tensor_tree::make_var_tree(graph, param);
 
         std::shared_ptr<lstm::transcriber> trans
-            = lstm_frame::make_transcriber(layer, dropout, &gen);
+            = lstm_frame::make_res_transcriber(layer, dropout, &gen);
 
         std::shared_ptr<autodiff::op_t> hidden;
         std::shared_ptr<autodiff::op_t> ignore;

@@ -8,7 +8,9 @@ bin = \
     frame-lstm-learn-batch \
     frame-lstm-predict \
     frame-cnn-learn \
-    frame-cnn-predict
+    frame-cnn-predict \
+    frame-lstm-res-learn \
+    frame-lstm-res-predict
 
     # frame-lstm-learn-batch-gpu \
 
@@ -64,6 +66,12 @@ frame-lstm-learn-batch-gpu: frame-lstm-learn-batch-gpu.o
 	$(CXX) $(CXXFLAGS) -L /opt/cuda/lib64 -o $@ $^ -lnngpu -lautodiffgpu -lspeech -loptgpu -llagpu -lebt -lblas -lcublas -lcuda -lcudart
 
 frame-lstm-predict: frame-lstm-predict.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
+
+frame-lstm-res-learn: frame-lstm-res-learn.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
+
+frame-lstm-res-predict: frame-lstm-res-predict.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
 
 loss-lstm: loss-lstm.o
