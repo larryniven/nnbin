@@ -31,8 +31,10 @@ int main(int argc, char *argv[])
             {"frame-batch", "", true},
             {"param", "", true},
             {"label", "", true},
+            {"layer", "", false},
             {"print-logprob", "", false},
             {"print-hidden", "", false},
+            {"nsample", "", false},
         }
     };
 
@@ -69,6 +71,10 @@ prediction_env::prediction_env(std::unordered_map<std::string, std::string> args
     param_ifs.close();
 
     label = speech::load_label_set(args.at("label"));
+
+    if (ebt::in(std::string("layer"), args)) {
+        layer = std::stoi(args.at("layer"));
+    }
 }
 
 void prediction_env::run()
@@ -141,6 +147,10 @@ void prediction_env::run()
         }
 
         std::cout << "." << std::endl;
+
+        if (ebt::in(std::string("nsample"), args) && nsample >= std::stoi(args.at("nsample"))) {
+            break;
+        }
 
         ++nsample;
     }

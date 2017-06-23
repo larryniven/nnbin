@@ -11,12 +11,22 @@
 #include "nn/lstm-frame.h"
 #include <algorithm>
 
+std::shared_ptr<tensor_tree::vertex> make_tensor_tree()
+{
+    tensor_tree::vertex root { "nil" };
+
+    root.children.push_back(nullptr);
+    root.children.push_back(tensor_tree::make_tensor("weight"));
+    root.children.push_back(tensor_tree::make_tensor("bias"));
+
+    return std::make_shared<tensor_tree::vertex>(root);
+}
+
 struct learning_env {
 
     speech::batch_indices frame_batch;
     speech::batch_indices label_batch;
 
-    int layer;
     std::shared_ptr<tensor_tree::vertex> param;
 
     std::shared_ptr<tensor_tree::optimizer> opt;
@@ -49,8 +59,8 @@ struct learning_env {
 int main(int argc, char *argv[])
 {
     ebt::ArgumentSpec spec {
-        "learn-lstm",
-        "Train a LSTM frame classifier",
+        "frame-lin-lstm",
+        "Train a linear frame classifier",
         {
             {"frame-batch", "", true},
             {"label-batch", "", true},
@@ -99,9 +109,7 @@ learning_env::learning_env(std::unordered_map<std::string, std::string> args)
     std::string line;
 
     std::ifstream param_ifs { args.at("param") };
-    std::getline(param_ifs, line);
-    layer = std::stoi(line);
-    param = lstm_frame::make_tensor_tree(layer);
+    param = make_tensor_tree();
     tensor_tree::load_tensor(param, param_ifs);
     param_ifs.close();
 
@@ -228,18 +236,12 @@ void learning_env::run()
         std::shared_ptr<tensor_tree::vertex> var_tree = tensor_tree::make_var_tree(graph, param);
 
         std::shared_ptr<lstm::transcriber> trans
-            = lstm_frame::make_transcriber(layer, dropout, &gen);
-
-        std::shared_ptr<autodiff::op_t> hidden;
-        std::shared_ptr<autodiff::op_t> ignore;
-
-        std::tie(hidden, ignore) = (*trans)(var_tree->children[0], input);
-
-        trans = std::make_shared<lstm::logsoftmax_transcriber>(
-            lstm::logsoftmax_transcriber { nullptr });
+            = std::make_shared<lstm::logsoftmax_transcriber>(
+                lstm::logsoftmax_transcriber { nullptr });
 
         std::shared_ptr<autodiff::op_t> logprob;
-        std::tie(logprob, ignore) = (*trans)(var_tree, hidden);
+        std::shared_ptr<autodiff::op_t> ignore;
+        std::tie(logprob, ignore) = (*trans)(var_tree, input);
 
         std::vector<double> gold_vec;
         gold_vec.resize(labels.size() * label_id.size());
@@ -283,7 +285,7 @@ void learning_env::run()
         std::cout << std::endl;
 #endif
 
-        std::shared_ptr<tensor_tree::vertex> grad = lstm_frame::make_tensor_tree(layer);
+        std::shared_ptr<tensor_tree::vertex> grad = make_tensor_tree();
         tensor_tree::copy_grad(grad, var_tree);
 
         tensor_tree::iadd(accu_grad, grad);
@@ -331,7 +333,6 @@ void learning_env::run()
     }
 
     std::ofstream param_ofs { output_param };
-    param_ofs << layer << std::endl;
     tensor_tree::save_tensor(param, param_ofs);
     param_ofs.close();
 

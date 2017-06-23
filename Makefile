@@ -10,7 +10,8 @@ bin = \
     frame-cnn-learn \
     frame-cnn-predict \
     frame-lstm-res-learn \
-    frame-lstm-res-predict
+    frame-lstm-res-predict \
+    frame-lin-learn
 
     # frame-lstm-learn-batch-gpu \
 
@@ -72,6 +73,9 @@ frame-lstm-res-learn: frame-lstm-res-learn.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
 
 frame-lstm-res-predict: frame-lstm-res-predict.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
+
+frame-lin-learn: frame-lin-learn.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
 
 loss-lstm: loss-lstm.o
