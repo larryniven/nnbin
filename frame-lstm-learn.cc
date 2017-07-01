@@ -111,8 +111,13 @@ learning_env::learning_env(std::unordered_map<std::string, std::string> args)
     tensor_tree::load_tensor(param, param_ifs);
     param_ifs.close();
 
-    cell_dim = tensor_tree::get_tensor(param->children[0]
-        ->children[0]->children[0]->children[0]).size(1) / 4;
+    if (ebt::in(std::string("dyer-lstm"), args)) {
+        cell_dim = tensor_tree::get_tensor(param->children[0]
+            ->children[0]->children[0]->children[0]).size(1) / 3;
+    } else {
+        cell_dim = tensor_tree::get_tensor(param->children[0]
+            ->children[0]->children[0]->children[0]).size(1) / 4;
+    }
 
     step_size = std::stod(args.at("step-size"));
 
