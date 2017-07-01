@@ -15,7 +15,7 @@ std::shared_ptr<tensor_tree::vertex> make_tensor_tree()
 {
     tensor_tree::vertex root { "nil" };
 
-    root.children.push_back(nullptr);
+    root.children.push_back(tensor_tree::make_tensor("dummy"));
     root.children.push_back(tensor_tree::make_tensor("weight"));
     root.children.push_back(tensor_tree::make_tensor("bias"));
 
@@ -66,7 +66,6 @@ int main(int argc, char *argv[])
             {"label-batch", "", true},
             {"param", "", true},
             {"opt-data", "", true},
-            {"step-size", "", true},
             {"output-param", "", false},
             {"output-opt-data", "", false},
             {"label", "", true},
@@ -76,6 +75,7 @@ int main(int argc, char *argv[])
             {"seed", "", false},
             {"batch-size", "", false},
             {"opt", "const-step,rmsprop,adagrad", true},
+            {"step-size", "", true},
             {"clip", "", false},
             {"decay", "", false},
         }
@@ -307,7 +307,7 @@ void learning_env::run()
 
             std::vector<std::shared_ptr<tensor_tree::vertex>> vars = tensor_tree::leaves_pre_order(param);
 
-            la::cpu::tensor<double> const& v = tensor_tree::get_tensor(vars.front());
+            la::cpu::tensor<double> const& v = tensor_tree::get_tensor(vars.back());
 
             double v1 = v.data()[0];
 

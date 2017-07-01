@@ -5,18 +5,17 @@ NVCCFLAGS += -std=c++11 -I .. -L ../ebt -L ../la -L ../opt -L ../autodiff -L ../
 
 bin = \
     frame-lstm-learn \
-    frame-lstm-learn-batch \
     frame-lstm-predict \
+    frame-lstm-learn-batch \
     frame-cnn-learn \
     frame-cnn-predict \
     frame-lstm-res-learn \
     frame-lstm-res-predict \
-    frame-lin-learn
+    frame-lin-learn \
+    frame-lin-predict
 
     # frame-lstm-learn-batch-gpu \
 
-    # learn \
-    # predict \
     # loss-lstm \
     # frame-hypercolumn-learn \
     # frame-hypercolumn-predict \
@@ -48,16 +47,13 @@ clean:
 	-rm *.o
 	-rm $(bin)
 
-learn: learn.o
-	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lopt -lla -lebt -lblas
-
-predict: predict.o
-	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lopt -lla -lebt -lblas
-
-frame-lstm-learn-batch: frame-lstm-learn-batch.o
+frame-lstm-learn: frame-lstm-learn.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
 
-frame-lstm-learn: frame-lstm-learn.o
+frame-lstm-predict: frame-lstm-predict.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
+
+frame-lstm-learn-batch: frame-lstm-learn-batch.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
 
 frame-lstm-learn-batch-gpu.o: frame-lstm-learn-batch-gpu.cu
@@ -66,9 +62,6 @@ frame-lstm-learn-batch-gpu.o: frame-lstm-learn-batch-gpu.cu
 frame-lstm-learn-batch-gpu: frame-lstm-learn-batch-gpu.o
 	$(CXX) $(CXXFLAGS) -L /opt/cuda/lib64 -o $@ $^ -lnngpu -lautodiffgpu -lspeech -loptgpu -llagpu -lebt -lblas -lcublas -lcuda -lcudart
 
-frame-lstm-predict: frame-lstm-predict.o
-	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
-
 frame-lstm-res-learn: frame-lstm-res-learn.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
 
@@ -76,6 +69,9 @@ frame-lstm-res-predict: frame-lstm-res-predict.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
 
 frame-lin-learn: frame-lin-learn.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
+
+frame-lin-predict: frame-lin-predict.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
 
 loss-lstm: loss-lstm.o

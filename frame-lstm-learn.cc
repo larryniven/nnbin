@@ -31,6 +31,7 @@ struct learning_env {
 
     int batch_size;
     std::vector<int> indices;
+    int cell_dim;
 
     std::default_random_engine gen;
 
@@ -49,23 +50,24 @@ struct learning_env {
 int main(int argc, char *argv[])
 {
     ebt::ArgumentSpec spec {
-        "learn-lstm",
+        "frame-lstm-learn",
         "Train a LSTM frame classifier",
         {
             {"frame-batch", "", true},
             {"label-batch", "", true},
             {"param", "", true},
             {"opt-data", "", true},
-            {"step-size", "", true},
             {"output-param", "", false},
             {"output-opt-data", "", false},
             {"label", "", true},
+            {"dyer-lstm", "", false},
             {"ignore", "", false},
             {"dropout", "", false},
             {"shuffle", "", false},
             {"seed", "", false},
             {"batch-size", "", false},
             {"opt", "const-step,rmsprop,adagrad", true},
+            {"step-size", "", true},
             {"clip", "", false},
             {"decay", "", false},
         }
@@ -101,9 +103,16 @@ learning_env::learning_env(std::unordered_map<std::string, std::string> args)
     std::ifstream param_ifs { args.at("param") };
     std::getline(param_ifs, line);
     layer = std::stoi(line);
-    param = lstm_frame::make_tensor_tree(layer);
+    if (ebt::in(std::string("dyer-lstm"), args)) {
+        param = lstm_frame::make_dyer_tensor_tree(layer);
+    } else {
+        param = lstm_frame::make_tensor_tree(layer);
+    }
     tensor_tree::load_tensor(param, param_ifs);
     param_ifs.close();
+
+    cell_dim = tensor_tree::get_tensor(param->children[0]
+        ->children[0]->children[0]->children[0]).size(1) / 4;
 
     step_size = std::stod(args.at("step-size"));
 
@@ -158,8 +167,7 @@ learning_env::learning_env(std::unordered_map<std::string, std::string> args)
         opt = std::make_shared<tensor_tree::adagrad_opt>(
             tensor_tree::adagrad_opt(param, step_size));
     } else {
-        std::cout << "unknown optimizer " << args.at("opt") << std::endl;
-        exit(1);
+        throw std::logic_error("unknown optimizer " + args.at("opt"));
     }
 
     gen = std::default_random_engine { seed };
@@ -227,19 +235,26 @@ void learning_env::run()
 
         std::shared_ptr<tensor_tree::vertex> var_tree = tensor_tree::make_var_tree(graph, param);
 
-        std::shared_ptr<lstm::transcriber> trans
-            = lstm_frame::make_transcriber(layer, dropout, &gen);
+        std::shared_ptr<lstm::transcriber> trans;
+
+        if (ebt::in(std::string("dyer-lstm"), args)) {
+            trans = lstm_frame::make_dyer_transcriber(layer, dropout, &gen);
+        } else {
+            trans = lstm_frame::make_transcriber(layer, dropout, &gen);
+        }
 
         std::shared_ptr<autodiff::op_t> hidden;
         std::shared_ptr<autodiff::op_t> ignore;
 
-        std::tie(hidden, ignore) = (*trans)(var_tree->children[0], input);
+        std::tie(hidden, ignore) = (*trans)(frames.size(), batch_size, cell_dim,
+            var_tree->children[0], input);
 
         trans = std::make_shared<lstm::logsoftmax_transcriber>(
             lstm::logsoftmax_transcriber { nullptr });
 
         std::shared_ptr<autodiff::op_t> logprob;
-        std::tie(logprob, ignore) = (*trans)(var_tree, hidden);
+        std::tie(logprob, ignore) = (*trans)(frames.size(), batch_size, cell_dim,
+            var_tree, hidden);
 
         std::vector<double> gold_vec;
         gold_vec.resize(labels.size() * label_id.size());
@@ -262,8 +277,7 @@ void learning_env::run()
         double ell = loss.loss();
 
         if (std::isnan(ell)) {
-            std::cerr << "loss is nan" << std::endl;
-            exit(1);
+            throw std::logic_error("loss is nan");
         }
 
         std::cout << "loss: " << ell / batch_size << std::endl;
@@ -283,7 +297,13 @@ void learning_env::run()
         std::cout << std::endl;
 #endif
 
-        std::shared_ptr<tensor_tree::vertex> grad = lstm_frame::make_tensor_tree(layer);
+        std::shared_ptr<tensor_tree::vertex> grad;
+
+        if (ebt::in(std::string("dyer-lstm"), args)) {
+            grad = lstm_frame::make_dyer_tensor_tree(layer);
+        } else {
+            grad = lstm_frame::make_tensor_tree(layer);
+        }
         tensor_tree::copy_grad(grad, var_tree);
 
         tensor_tree::iadd(accu_grad, grad);

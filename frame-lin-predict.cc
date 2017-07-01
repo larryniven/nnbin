@@ -5,14 +5,22 @@
 #include "nn/lstm-frame.h"
 #include <fstream>
 
+std::shared_ptr<tensor_tree::vertex> make_tensor_tree()
+{
+    tensor_tree::vertex root { "nil" };
+
+    root.children.push_back(tensor_tree::make_tensor("dummy"));
+    root.children.push_back(tensor_tree::make_tensor("weight"));
+    root.children.push_back(tensor_tree::make_tensor("bias"));
+
+    return std::make_shared<tensor_tree::vertex>(root);
+}
+
 struct prediction_env {
 
     std::ifstream frame_batch;
 
-    int layer;
     std::shared_ptr<tensor_tree::vertex> param;
-
-    int cell_dim;
 
     std::vector<std::string> label;
 
@@ -27,16 +35,13 @@ struct prediction_env {
 int main(int argc, char *argv[])
 {
     ebt::ArgumentSpec spec {
-        "frame-lstm-predict",
+        "frame-lin-predict",
         "Predict frames with LSTM",
         {
             {"frame-batch", "", true},
             {"param", "", true},
             {"label", "", true},
-            {"layer", "", false},
-            {"dyer-lstm", "", false},
             {"print-logprob", "", false},
-            {"print-hidden", "", false},
             {"nsample", "", false},
         }
     };
@@ -66,25 +71,11 @@ prediction_env::prediction_env(std::unordered_map<std::string, std::string> args
     frame_batch.open(args.at("frame-batch"));
 
     std::ifstream param_ifs { args.at("param") };
-    std::string line;
-    std::getline(param_ifs, line);
-    layer = std::stoi(line);
-    if (ebt::in(std::string("dyer-lstm"), args)) {
-        param = lstm_frame::make_dyer_tensor_tree(layer);
-    } else {
-        param = lstm_frame::make_tensor_tree(layer);
-    }
+    param = make_tensor_tree();
     tensor_tree::load_tensor(param, param_ifs);
     param_ifs.close();
 
-    cell_dim = tensor_tree::get_tensor(param->children[0]
-        ->children[0]->children[0]->children[0]).size(1) / 4;
-
     label = speech::load_label_set(args.at("label"));
-
-    if (ebt::in(std::string("layer"), args)) {
-        layer = std::stoi(args.at("layer"));
-    }
 }
 
 void prediction_env::run()
@@ -112,32 +103,18 @@ void prediction_env::run()
 
         std::shared_ptr<tensor_tree::vertex> var_tree = tensor_tree::make_var_tree(graph, param);
 
-        std::shared_ptr<lstm::transcriber> trans;
-
-        if (ebt::in(std::string("dyer-lstm"), args)) {
-            trans = lstm_frame::make_dyer_transcriber(layer, 0.0, nullptr);
-        } else {
-            trans = lstm_frame::make_transcriber(layer, 0.0, nullptr);
-        }
-
         std::shared_ptr<autodiff::op_t> output;
         std::shared_ptr<autodiff::op_t> ignore;
 
-        if (ebt::in(std::string("print-hidden"), args)) {
-            std::tie(output, ignore) = (*trans)(frames.size(), 1, cell_dim,
-                var_tree->children[0], input);
-        } else {
-            trans = std::make_shared<lstm::logsoftmax_transcriber>(
-                lstm::logsoftmax_transcriber { trans });
-            std::tie(output, ignore) = (*trans)(frames.size(), 1, cell_dim,
-                var_tree, input);
-        }
+        std::shared_ptr<lstm::transcriber> trans = std::make_shared<lstm::logsoftmax_transcriber>(
+            lstm::logsoftmax_transcriber { nullptr });
+        std::tie(output, ignore) = (*trans)(var_tree, input);
 
         std::cout << nsample << ".phn" << std::endl;
 
         auto& output_t = autodiff::get_output<la::cpu::tensor_like<double>>(output);
 
-        if (ebt::in(std::string("print-logprob"), args) || ebt::in(std::string("print-hidden"), args)) {
+        if (ebt::in(std::string("print-logprob"), args)) {
             for (int t = 0; t < output_t.size(0); ++t) {
                 std::cout << output_t({t, 0});
 
@@ -152,9 +129,9 @@ void prediction_env::run()
                 int argmax = -1;
                 double max = -std::numeric_limits<double>::infinity();
 
-                for (int j = 0; j < output_t.size(2); ++j) {
-                    if (output_t({t, 0, j}) > max) {
-                        max = output_t({t, 0, j});
+                for (int j = 0; j < output_t.size(1); ++j) {
+                    if (output_t({t, j}) > max) {
+                        max = output_t({t, j});
                         argmax = j;
                     }
                 }
