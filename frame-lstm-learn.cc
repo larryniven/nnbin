@@ -31,7 +31,6 @@ struct learning_env {
 
     int batch_size;
     std::vector<int> indices;
-    int cell_dim;
 
     std::default_random_engine gen;
 
@@ -110,14 +109,6 @@ learning_env::learning_env(std::unordered_map<std::string, std::string> args)
     }
     tensor_tree::load_tensor(param, param_ifs);
     param_ifs.close();
-
-    if (ebt::in(std::string("dyer-lstm"), args)) {
-        cell_dim = tensor_tree::get_tensor(param->children[0]
-            ->children[0]->children[0]->children[0]).size(1) / 3;
-    } else {
-        cell_dim = tensor_tree::get_tensor(param->children[0]
-            ->children[0]->children[0]->children[0]).size(1) / 4;
-    }
 
     step_size = std::stod(args.at("step-size"));
 
@@ -243,23 +234,26 @@ void learning_env::run()
         std::shared_ptr<lstm::transcriber> trans;
 
         if (ebt::in(std::string("dyer-lstm"), args)) {
-            trans = lstm_frame::make_dyer_transcriber(layer, dropout, &gen);
+            trans = lstm_frame::make_dyer_transcriber(param, dropout, &gen, false);
         } else {
-            trans = lstm_frame::make_transcriber(layer, dropout, &gen);
+            trans = lstm_frame::make_transcriber(param, dropout, &gen, false);
         }
 
-        std::shared_ptr<autodiff::op_t> hidden;
-        std::shared_ptr<autodiff::op_t> ignore;
+        lstm::trans_seq_t input_seq;
+        input_seq.nframes = frames.size();
+        input_seq.batch_size = batch_size;
+        input_seq.dim = frames.front().size();
+        input_seq.feat = input;
+        input_seq.mask = nullptr;
 
-        std::tie(hidden, ignore) = (*trans)(frames.size(), batch_size, cell_dim,
-            var_tree->children[0], input);
+        lstm::trans_seq_t feat_seq = (*trans)(var_tree->children[0], input_seq);
 
         trans = std::make_shared<lstm::logsoftmax_transcriber>(
-            lstm::logsoftmax_transcriber { nullptr });
+            lstm::logsoftmax_transcriber { (int) label_id.size(), nullptr });
 
-        std::shared_ptr<autodiff::op_t> logprob;
-        std::tie(logprob, ignore) = (*trans)(frames.size(), batch_size, cell_dim,
-            var_tree, hidden);
+        lstm::trans_seq_t logprob_seq = (*trans)(var_tree, feat_seq);
+
+        std::shared_ptr<autodiff::op_t> logprob = logprob_seq.feat;
 
         std::vector<double> gold_vec;
         gold_vec.resize(labels.size() * label_id.size());

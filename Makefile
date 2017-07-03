@@ -5,17 +5,16 @@ NVCCFLAGS += -std=c++11 -I .. -L ../ebt -L ../la -L ../opt -L ../autodiff -L ../
 
 bin = \
     frame-lstm-learn \
-    frame-lstm-predict \
-    frame-lstm-learn-batch \
-    frame-cnn-learn \
-    frame-cnn-predict \
-    frame-lstm-res-learn \
-    frame-lstm-res-predict \
-    frame-lin-learn \
-    frame-lin-predict
+    frame-lstm-predict
 
     # frame-lstm-learn-batch-gpu \
-
+    # frame-lstm-learn-batch \
+    # frame-lstm-res-learn \
+    # frame-lstm-res-predict \
+    # frame-cnn-learn \
+    # frame-cnn-predict \
+    # frame-lin-learn \
+    # frame-lin-predict \
     # loss-lstm \
     # frame-hypercolumn-learn \
     # frame-hypercolumn-predict \
