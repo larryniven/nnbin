@@ -10,12 +10,15 @@
 #include "nn/cnn.h"
 #include "nn/cnn-frame.h"
 #include <algorithm>
+#include <iomanip>
 
 struct learning_env {
 
     speech::batch_indices frame_batch;
     speech::batch_indices label_batch;
 
+    std::vector<std::pair<int, int>> indices;
+    int win_size;
     unsigned int input_channel;
 
     std::shared_ptr<tensor_tree::vertex> param;
@@ -32,8 +35,8 @@ struct learning_env {
     double dropout;
     int seed;
 
-    std::string output_param;
-    std::string output_opt_data;
+    std::string output_param_prefix;
+    std::string output_opt_data_prefix;
 
     double clip;
 
@@ -54,21 +57,25 @@ struct learning_env {
 int main(int argc, char *argv[])
 {
     ebt::ArgumentSpec spec {
-        "frame-cnn-learn",
+        "frame-win-cnn-learn",
         "Train a CNN frame classifier",
         {
             {"frame-batch", "", true},
             {"label-batch", "", true},
+            {"win-size", "", true},
             {"input-channel", "", true},
             {"param", "", true},
             {"opt-data", "", true},
-            {"output-param", "", false},
-            {"output-opt-data", "", false},
+            {"output-param-prefix", "", false},
+            {"output-opt-data-prefix", "", false},
             {"label", "", true},
             {"ignore", "", false},
             {"dropout", "", false},
             {"seed", "", false},
+            {"rand-state", "", false},
             {"shuffle", "", false},
+            {"save-every", "", false},
+            {"start-from", "", false},
             {"opt", "const-step,adagrad,rmsprop,adam", true},
             {"step-size", "", true},
             {"momentum", "", false},
@@ -102,6 +109,7 @@ learning_env::learning_env(std::unordered_map<std::string, std::string> args)
     frame_batch.open(args.at("frame-batch"));
     label_batch.open(args.at("label-batch"));
 
+    win_size = std::stoi(args.at("win-size"));
     input_channel = std::stoi(args.at("input-channel"));
 
     std::ifstream param_ifs { args.at("param") };
@@ -115,14 +123,14 @@ learning_env::learning_env(std::unordered_map<std::string, std::string> args)
         decay = std::stod(args.at("decay"));
     }
 
-    output_param = "param-last";
-    if (ebt::in(std::string("output-param"), args)) {
-        output_param = args.at("output-param");
+    output_param_prefix = "param-";
+    if (ebt::in(std::string("output-param-prefix"), args)) {
+        output_param_prefix = args.at("output-param-prefix");
     }
 
-    output_opt_data = "opt-data-last";
-    if (ebt::in(std::string("output-opt-data"), args)) {
-        output_opt_data = args.at("output-opt-data");
+    output_opt_data_prefix = "opt-data-";
+    if (ebt::in(std::string("output-opt-data-prefix"), args)) {
+        output_opt_data_prefix = args.at("output-opt-data-prefix");
     }
 
     clip = std::numeric_limits<double>::infinity();
@@ -176,53 +184,81 @@ learning_env::learning_env(std::unordered_map<std::string, std::string> args)
     gen = std::default_random_engine { seed };
 
     if (ebt::in(std::string("shuffle"), args)) {
-        std::vector<int> indices;
-        indices.resize(frame_batch.pos.size());
+        std::vector<int> nframes;
 
-        for (int i = 0; i < indices.size(); ++i) {
-            indices[i] = i;
+        for (int i = 0; i < label_batch.pos.size(); ++i) {
+            std::vector<std::string> labels = speech::load_label_batch(label_batch.at(i));
+            nframes.push_back(labels.size());
         }
+
+        for (int i = 0; i < label_batch.pos.size(); ++i) {
+            for (int j = 0; j < nframes[i]; ++j) {
+                indices.push_back(std::make_pair(i, j));
+            }
+        }
+
         std::shuffle(indices.begin(), indices.end(), gen);
-
-        std::vector<unsigned long> pos = frame_batch.pos;
-        for (int i = 0; i < indices.size(); ++i) {
-            frame_batch.pos[i] = pos[indices[i]];
-        }
-
-        pos = label_batch.pos;
-        for (int i = 0; i < indices.size(); ++i) {
-            label_batch.pos[i] = pos[indices[i]];
-        }
     }
 }
 
 void learning_env::run()
 {
+    std::time_t now = std::time(nullptr);
+    std::cout << "start time: " << std::put_time(std::localtime(&now), "%c %Z") << std::endl;
+    std::cout << std::endl;
+
     ebt::Timer timer;
 
     int nsample = 0;
 
-    while (nsample < frame_batch.pos.size()) {
-        std::vector<std::vector<double>> frames = speech::load_frame_batch(frame_batch.at(nsample));
+    if (ebt::in(std::string("start-from"), args)) {
+        nsample = std::stoi(args.at("start-from"));
+    }
 
-	std::vector<std::string> labels = speech::load_label_batch(label_batch.at(nsample));
+    if (ebt::in(std::string("rand-state"), args)) {
+        std::istringstream iss { args.at("rand-state") };
+        iss >> gen;
+    }
 
-        std::cout << "sample: " << nsample << std::endl;
-        std::cout << "frames: " << frames.size() << std::endl;
+    while (nsample < indices.size()) {
+
+        std::vector<std::vector<double>> frames = speech::load_frame_batch(frame_batch.at(indices[nsample].first));
+
+	std::vector<std::string> labels = speech::load_label_batch(label_batch.at(indices[nsample].first));
+
+        int frame_index = indices[nsample].second;
+
+        std::cout << "sample: " << nsample
+            << " utt: " << indices[nsample].first
+            << " frame: " << indices[nsample].second
+            << " label: " << labels[frame_index] << std::endl;
 
         assert(frames.size() == labels.size());
+
+        if (ebt::in(labels[frame_index], ignored)) {
+            std::cout << "skip " << labels[frame_index] << std::endl;
+            std::cout << std::endl;
+            ++nsample;
+            continue;
+        }
 
         autodiff::computation_graph graph;
         var_tree = tensor_tree::make_var_tree(graph, param);
 
+        assert(frames.front().size() % input_channel == 0);
+
         unsigned int input_dim = frames.front().size() / input_channel;
 
         la::cpu::tensor<double> input_tensor;
-        input_tensor.resize({ (unsigned int) frames.size(), input_dim, input_channel });
+        input_tensor.resize({ (unsigned int) win_size, input_dim, input_channel});
 
-        for (int t = 0; t < frames.size(); ++t) {
+        for (int t = frame_index - win_size / 2; t <= frame_index + win_size / 2; ++t) {
             for (int i = 0; i < frames.front().size(); ++i) {
-                input_tensor({t, int(i % input_dim), int(i / input_dim)}) = frames[t][i];
+                if (t < 0 || t >= frames.size()) {
+                    input_tensor({t - frame_index + win_size / 2, int(i % input_dim), int(i / input_dim)}) = 0;
+                } else {
+                    input_tensor({t - frame_index + win_size / 2, int(i % input_dim), int(i / input_dim)}) = frames[t][i];
+                }
             }
         }
 
@@ -231,12 +267,10 @@ void learning_env::run()
         std::shared_ptr<cnn::transcriber> trans = cnn::make_transcriber(cnn_config, dropout, &gen);
         std::shared_ptr<autodiff::op_t> logprob = (*trans)(var_tree, input);
 
-
 /*
         auto& t = autodiff::get_output<la::cpu::tensor_like<double>>(logprob);
 
         std::cout << std::endl;
-
         for (int i = 0; i < 20; ++i) {
             for (int j = 0; j < 40; ++j) {
                 std::cout << t({i, j}) << " ";
@@ -247,18 +281,11 @@ void learning_env::run()
 */
 
         std::vector<double> gold_vec;
-        gold_vec.resize(labels.size() * label_id.size());
-        int nframes = 0;
-
-        for (int t = 0; t < labels.size(); ++t) {
-            if (!ebt::in(labels[t], ignored)) {
-                gold_vec[t * label_id.size() + label_id.at(labels[t])] = 1;
-                nframes += 1;
-            }
-        }
+        gold_vec.resize(label_id.size());
+        gold_vec[label_id.at(labels[frame_index])] = 1;
 
         la::cpu::weak_tensor<double> gold { gold_vec.data(),
-            {(unsigned int) labels.size(), (unsigned int) label_id.size()}};
+            {(unsigned int) label_id.size()}};
         auto& pred = autodiff::get_output<la::cpu::tensor_like<double>>(logprob);
         nn::log_loss loss { gold, pred };
 
@@ -267,12 +294,10 @@ void learning_env::run()
         double ell = loss.loss();
 
         if (std::isnan(ell)) {
-            std::cerr << "loss is nan" << std::endl;
-            exit(1);
+            throw std::logic_error("loss is nan");
         }
 
         std::cout << "loss: " << ell << std::endl;
-        std::cout << "E: " << ell / nframes << std::endl;
 
         auto topo_order = autodiff::natural_topo_order(graph);
         autodiff::guarded_grad(topo_order, autodiff::grad_funcs);
@@ -302,7 +327,7 @@ void learning_env::run()
 
         std::cout << vars.front()->name << " weight: " << v1 << " update: " << v2 - v1 << " rate: " << (v2 - v1) / v1 << std::endl;
 
-        std::cout << std::endl;
+        std::cout << "param norm: " << tensor_tree::norm(param) << std::endl;
 
 #if DEBUG_TOP
         if (nsample == DEBUG_TOP) {
@@ -311,13 +336,27 @@ void learning_env::run()
 #endif
 
         ++nsample;
+
+        std::cout << "rand: " << gen << std::endl;
+
+        if (ebt::in(std::string("save-every"), args) && nsample % std::stoi(args.at("save-every")) == 0) {
+            std::ofstream param_ofs { output_param_prefix + std::to_string(nsample) };
+            cnn::save_param(cnn_config, param_ofs);
+            param_ofs.close();
+
+            std::ofstream opt_data_ofs { output_opt_data_prefix + std::to_string(nsample) };
+            opt->save_opt_data(opt_data_ofs);
+            opt_data_ofs.close();
+        }
+
+        std::cout << std::endl;
     }
 
-    std::ofstream param_ofs { output_param };
+    std::ofstream param_ofs { output_param_prefix + "final" };
     cnn::save_param(cnn_config, param_ofs);
     param_ofs.close();
 
-    std::ofstream opt_data_ofs { output_opt_data };
+    std::ofstream opt_data_ofs { output_opt_data_prefix + "final" };
     opt->save_opt_data(opt_data_ofs);
     opt_data_ofs.close();
 }

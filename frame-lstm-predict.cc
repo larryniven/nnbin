@@ -140,10 +140,10 @@ void prediction_env::run()
 
         if (ebt::in(std::string("print-logprob"), args) || ebt::in(std::string("print-hidden"), args)) {
             for (int t = 0; t < output_t.size(0); ++t) {
-                std::cout << output_t({t, 0});
+                std::cout << output_t({t, 0, 0});
 
-                for (int j = 1; j < output_t.size(1); ++j) {
-                    std::cout << " " << output_t({t, j});
+                for (int j = 1; j < output_t.size(2); ++j) {
+                    std::cout << " " << output_t({t, 0, j});
                 }
 
                 std::cout << std::endl;

@@ -105,11 +105,11 @@ void prediction_env::run()
         var_tree = tensor_tree::make_var_tree(graph, param);
 
         la::cpu::tensor<double> input_tensor;
-        input_tensor.resize({ (unsigned int) frames.size(), 40, 3});
+        input_tensor.resize({ (unsigned int) frames.size(), 41, 3});
 
         for (int t = 0; t < frames.size(); ++t) {
             for (int i = 0; i < frames.front().size(); ++i) {
-                input_tensor({t, i % 40, i / 40}) = frames[t][i];
+                input_tensor({t, i % 41, i / 41}) = frames[t][i];
             }
         }
 
