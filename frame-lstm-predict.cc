@@ -122,14 +122,18 @@ void prediction_env::run()
         input_seq.feat = input;
         input_seq.mask = nullptr;
 
+        lstm::trans_seq_t feat_seq = (*trans)(var_tree->children[0], input_seq);
+
         lstm::trans_seq_t output_seq;
 
         if (ebt::in(std::string("print-hidden"), args)) {
-            output_seq = (*trans)(var_tree->children[0], input_seq);
+            output_seq = feat_seq;
         } else {
-            trans = std::make_shared<lstm::logsoftmax_transcriber>(
-                lstm::logsoftmax_transcriber { (int) label.size(), trans });
-            output_seq = (*trans)(var_tree, input_seq);
+            lstm::fc_transcriber fc_trans { (int) label.size() };
+            lstm::logsoftmax_transcriber logsoftmax_trans;
+            auto score = fc_trans(var_tree->children[1], feat_seq);
+
+            output_seq = logsoftmax_trans(nullptr, score);
         }
 
         std::shared_ptr<autodiff::op_t> output = output_seq.feat;

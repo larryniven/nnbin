@@ -248,12 +248,12 @@ void learning_env::run()
 
         lstm::trans_seq_t feat_seq = (*trans)(var_tree->children[0], input_seq);
 
-        trans = std::make_shared<lstm::logsoftmax_transcriber>(
-            lstm::logsoftmax_transcriber { (int) label_id.size(), nullptr });
+        lstm::fc_transcriber fc_trans { (int) label_id.size() };
+        lstm::logsoftmax_transcriber logsoftmax_trans;
+        auto score_seq = fc_trans(var_tree->children[1], feat_seq);
+        auto output_seq = logsoftmax_trans(nullptr, score_seq);
 
-        lstm::trans_seq_t logprob_seq = (*trans)(var_tree, feat_seq);
-
-        std::shared_ptr<autodiff::op_t> logprob = logprob_seq.feat;
+        std::shared_ptr<autodiff::op_t> logprob = output_seq.feat;
 
         std::vector<double> gold_vec;
         gold_vec.resize(labels.size() * label_id.size());
