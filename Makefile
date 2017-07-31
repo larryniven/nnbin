@@ -7,7 +7,8 @@ bin = \
     frame-lstm-learn \
     frame-lstm-predict \
     frame-cnn-learn \
-    frame-cnn-predict
+    frame-cnn-predict \
+    seg-lstm-learn
 
     # frame-lstm-learn-batch-gpu \
     # frame-lstm-learn-batch \
@@ -149,5 +150,11 @@ rsg-predict: rsg-predict.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
 
 rsg-loss: rsg-loss.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
+
+seg-lstm-learn: seg-lstm-learn.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
+
+seg-lstm-predict: seg-lstm-predict.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
 

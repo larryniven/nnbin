@@ -172,12 +172,13 @@ learning_env::learning_env(std::unordered_map<std::string, std::string> args)
     opt->load_opt_data(opt_data_ifs);
     opt_data_ifs.close();
 
-    if (ebt::in(std::string("shuffle"), args)) {
-        indices.resize(frame_batch.pos.size());
+    indices.resize(frame_batch.pos.size());
 
-        for (int i = 0; i < indices.size(); ++i) {
-            indices[i] = i;
-        }
+    for (int i = 0; i < indices.size(); ++i) {
+        indices[i] = i;
+    }
+
+    if (ebt::in(std::string("shuffle"), args)) {
         std::shuffle(indices.begin(), indices.end(), gen);
 
         std::vector<unsigned long> pos = frame_batch.pos;
@@ -234,9 +235,9 @@ void learning_env::run()
         std::shared_ptr<lstm::transcriber> trans;
 
         if (ebt::in(std::string("dyer-lstm"), args)) {
-            trans = lstm_frame::make_dyer_transcriber(param, dropout, &gen, false);
+            trans = lstm_frame::make_dyer_transcriber(param->children[0], dropout, &gen, false);
         } else {
-            trans = lstm_frame::make_transcriber(param, dropout, &gen, false);
+            trans = lstm_frame::make_transcriber(param->children[0], dropout, &gen, false);
         }
 
         lstm::trans_seq_t input_seq;

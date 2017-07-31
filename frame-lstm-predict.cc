@@ -110,9 +110,9 @@ void prediction_env::run()
         std::shared_ptr<lstm::transcriber> trans;
 
         if (ebt::in(std::string("dyer-lstm"), args)) {
-            trans = lstm_frame::make_dyer_transcriber(param, 0.0, nullptr, false);
+            trans = lstm_frame::make_dyer_transcriber(param->children[0], 0.0, nullptr, false);
         } else {
-            trans = lstm_frame::make_transcriber(param, 0.0, nullptr, false);
+            trans = lstm_frame::make_transcriber(param->children[0], 0.0, nullptr, false);
         }
 
         lstm::trans_seq_t input_seq;
