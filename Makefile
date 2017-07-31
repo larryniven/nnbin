@@ -8,7 +8,8 @@ bin = \
     frame-lstm-predict \
     frame-cnn-learn \
     frame-cnn-predict \
-    seg-lstm-learn
+    seg-lstm-learn \
+    seg-lstm-predict
 
     # frame-lstm-learn-batch-gpu \
     # frame-lstm-learn-batch \
