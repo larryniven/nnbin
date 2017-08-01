@@ -16,7 +16,7 @@ std::shared_ptr<tensor_tree::vertex> make_tensor_tree(int layer)
 {
     tensor_tree::vertex root { "nil" };
 
-    lstm::multilayer_lstm_tensor_tree_factory factory {
+    lstm::multilayer_lstm_tensor_tree_factory frame_lstm_factory {
         std::make_shared<lstm::bi_lstm_tensor_tree_factory>(
         lstm::bi_lstm_tensor_tree_factory {
             std::make_shared<lstm::lstm_tensor_tree_factory>(
@@ -25,7 +25,7 @@ std::shared_ptr<tensor_tree::vertex> make_tensor_tree(int layer)
         layer
     };
 
-    root.children.push_back(factory());
+    root.children.push_back(frame_lstm_factory());
 
     tensor_tree::vertex seg { "nil" };
     seg.children.push_back(tensor_tree::make_tensor("left"));
@@ -34,6 +34,17 @@ std::shared_ptr<tensor_tree::vertex> make_tensor_tree(int layer)
     seg.children.push_back(tensor_tree::make_tensor("bias"));
 
     root.children.push_back(std::make_shared<tensor_tree::vertex>(seg));
+
+    lstm::multilayer_lstm_tensor_tree_factory seg_lstm_factory {
+        std::make_shared<lstm::bi_lstm_tensor_tree_factory>(
+        lstm::bi_lstm_tensor_tree_factory {
+            std::make_shared<lstm::lstm_tensor_tree_factory>(
+                lstm::lstm_tensor_tree_factory{})
+        }),
+        1
+    };
+
+    root.children.push_back(seg_lstm_factory());
 
     tensor_tree::vertex fc { "nil" };
     fc.children.push_back(tensor_tree::make_tensor("softmax"));
@@ -93,8 +104,8 @@ transcribe_seg_feat(std::shared_ptr<tensor_tree::vertex> var_tree,
 
 struct prediction_env {
 
-    speech::batch_indices frame_batch;
-    speech::batch_indices seg_batch;
+    std::ifstream frame_batch;
+    std::ifstream seg_batch;
 
     int layer;
     std::shared_ptr<tensor_tree::vertex> param;
@@ -174,9 +185,13 @@ void prediction_env::run()
 {
     int nsample = 0;
 
-    while (nsample < frame_batch.pos.size()) {
-        std::vector<std::vector<double>> frames = speech::load_frame_batch(frame_batch.at(nsample));
-	std::vector<speech::segment> segs = speech::load_segment_batch(seg_batch.at(nsample));
+    while (true) {
+        std::vector<std::vector<double>> frames = speech::load_frame_batch(frame_batch);
+	std::vector<speech::segment> segs = speech::load_segment_batch(seg_batch);
+
+        if (!frame_batch || !seg_batch) {
+            break;
+        }
 
         autodiff::computation_graph graph;
 
@@ -213,7 +228,7 @@ void prediction_env::run()
 
         lstm::fc_transcriber fc_trans { (int) label_id.size() };
         lstm::logsoftmax_transcriber logsoftmax_trans;
-        auto score_seq = fc_trans(var_tree->children[2], seg_feat);
+        auto score_seq = fc_trans(var_tree->children[3], seg_feat);
         auto output_seq = logsoftmax_trans(nullptr, score_seq);
 
         std::shared_ptr<autodiff::op_t> logprob = output_seq.feat;
@@ -228,8 +243,8 @@ void prediction_env::run()
             int argmax = -1;
 
             for (int k = 0; k < id_label.size(); ++k) {
-                if (logprob_t({i, 0, k}) > max) {
-                    max = logprob_t({i, 0, k});
+                if (logprob_t({i, k}) > max) {
+                    max = logprob_t({i, k});
                     argmax = k;
                 }
             }
