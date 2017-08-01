@@ -232,7 +232,7 @@ void prediction_env::run()
         auto output_seq = logsoftmax_trans(nullptr, score_seq);
 
         std::shared_ptr<autodiff::op_t> logprob = output_seq.feat;
-        auto& logprob_t = autodiff::get_output<la::cpu::tensor_like<double>>(logprob);
+        auto& logprob_m = autodiff::get_output<la::cpu::tensor_like<double>>(logprob).as_matrix();
 
         double inf = std::numeric_limits<double>::infinity();
 
@@ -243,8 +243,8 @@ void prediction_env::run()
             int argmax = -1;
 
             for (int k = 0; k < id_label.size(); ++k) {
-                if (logprob_t({i, k}) > max) {
-                    max = logprob_t({i, k});
+                if (logprob_m(i, k) > max) {
+                    max = logprob_m(i, k);
                     argmax = k;
                 }
             }
