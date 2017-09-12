@@ -9,7 +9,8 @@ bin = \
     frame-cnn-learn \
     frame-cnn-predict \
     seg-lstm-learn \
-    seg-lstm-predict
+    seg-lstm-predict \
+    seq2seq-learn
 
     # frame-lstm-learn-batch-gpu \
     # frame-lstm-learn-batch \
@@ -157,5 +158,8 @@ seg-lstm-learn: seg-lstm-learn.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
 
 seg-lstm-predict: seg-lstm-predict.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
+
+seq2seq-learn: seq2seq-learn.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
 
