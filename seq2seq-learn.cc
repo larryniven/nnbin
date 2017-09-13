@@ -250,6 +250,16 @@ void learning_env::run()
 
         auto& pred_t = autodiff::get_output<la::cpu::tensor_like<double>>(decoder_nn.pred);
 
+        /*
+        auto& attention = autodiff::get_output<la::cpu::tensor_like<double>>(decoder_nn.attentions[0]);
+
+        std::cout << std::endl;
+        for (int i = 0; i < attention.vec_size(); ++i) {
+            std::cout << attention.data()[i] << std::endl;
+        }
+        std::cout << std::endl;
+        */
+
         nn::log_loss loss { gold_t, pred_t };
 
         double ell = loss.loss();
@@ -279,7 +289,8 @@ void learning_env::run()
                     << std::endl;
             }
 
-            std::vector<std::shared_ptr<tensor_tree::vertex>> vars = tensor_tree::leaves_pre_order(param);
+            std::vector<std::shared_ptr<tensor_tree::vertex>> vars
+                = tensor_tree::leaves_pre_order(param);
 
             double v1 = tensor_tree::get_tensor(vars[0]).data()[0];
 
