@@ -55,6 +55,7 @@ int main(int argc, char *argv[])
             {"opt-data", "", true},
             {"output-param", "", false},
             {"output-opt-data", "", false},
+            {"attention", "bilin,bilin-softmax", true},
             {"label", "", true},
             {"dropout", "", false},
             {"seed", "", false},
@@ -238,8 +239,20 @@ void learning_env::run()
 
         std::cout << "frames: " << frames.size() << " downsampled: " << feat_seq.nframes << std::endl;
 
+        std::shared_ptr<seq2seq::attention> att_func;
+
+        if (args.at("attention") == "bilin") {
+            att_func = std::make_shared<seq2seq::bilinear_attention>(
+                seq2seq::bilinear_attention{});
+        } else if (args.at("attention") == "bilin-softmax") {
+            att_func = std::make_shared<seq2seq::bilinear_softmax_attention>(
+                seq2seq::bilinear_softmax_attention{});
+        } else {
+            throw std::logic_error("unknown attention " + args.at("attention"));
+        }
+
         auto decoder_nn = seq2seq::make_training_nn(label_id_seq, id_label.size(),
-            feat_seq.feat, feat_seq.nframes, feat_seq.dim, var_tree);
+            feat_seq.feat, feat_seq.nframes, feat_seq.dim, var_tree, *att_func);
 
         la::cpu::tensor<double> gold_t;
         gold_t.resize({ (unsigned int) label_id_seq.size(), (unsigned int) label_id.size() });
@@ -249,16 +262,6 @@ void learning_env::run()
         }
 
         auto& pred_t = autodiff::get_output<la::cpu::tensor_like<double>>(decoder_nn.pred);
-
-        /*
-        auto& attention = autodiff::get_output<la::cpu::tensor_like<double>>(decoder_nn.attentions[0]);
-
-        std::cout << std::endl;
-        for (int i = 0; i < attention.vec_size(); ++i) {
-            std::cout << attention.data()[i] << std::endl;
-        }
-        std::cout << std::endl;
-        */
 
         nn::log_loss loss { gold_t, pred_t };
 
