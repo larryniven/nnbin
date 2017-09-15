@@ -64,7 +64,7 @@ prediction_env::prediction_env(std::unordered_map<std::string, std::string> args
     std::string line;
     std::getline(param_ifs, line);
     layer = std::stoi(line);
-    param = lstm_frame::make_tensor_tree(layer);
+    param = seq2seq::make_tensor_tree(layer);
     tensor_tree::load_tensor(param, param_ifs);
     param_ifs.close();
 
@@ -109,9 +109,9 @@ void prediction_env::run()
         std::shared_ptr<lstm::transcriber> trans;
 
         if (ebt::in(std::string("subsampling"), args)) {
-            trans = lstm_frame::make_transcriber(param->children[0], 0.0, nullptr, true);
+            trans = lstm_frame::make_transcriber(param->children[0]->children[0], 0.0, nullptr, true);
         } else {
-            trans = lstm_frame::make_transcriber(param->children[0], 0.0, nullptr, false);
+            trans = lstm_frame::make_transcriber(param->children[0]->children[0], 0.0, nullptr, false);
         }
 
         lstm::trans_seq_t input_seq;
@@ -121,7 +121,7 @@ void prediction_env::run()
         input_seq.feat = input;
         input_seq.mask = nullptr;
 
-        lstm::trans_seq_t feat_seq = (*trans)(var_tree->children[0], input_seq);
+        lstm::trans_seq_t feat_seq = (*trans)(var_tree->children[0]->children[0], input_seq);
 
         std::shared_ptr<seq2seq::attention> att_func;
 
@@ -139,7 +139,7 @@ void prediction_env::run()
             feat_seq.feat, feat_seq.nframes, feat_seq.dim, var_tree, *att_func);
 
         for (int i = 0; i < labels.size() - 1; ++i) {
-            std::cout << labels[i] << " ";
+            std::cout << id_label[labels[i]] << " ";
         }
 
         std::cout << "(" << nsample << ".dot)" << std::endl;

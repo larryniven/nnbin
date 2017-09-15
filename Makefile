@@ -6,12 +6,13 @@ NVCCFLAGS += -std=c++11 -I .. -L ../ebt -L ../la -L ../opt -L ../autodiff -L ../
 bin = \
     frame-lstm-learn \
     frame-lstm-predict \
-    frame-cnn-learn \
-    frame-cnn-predict \
-    seg-lstm-learn \
-    seg-lstm-predict \
-    seq2seq-learn
+    seq2seq-learn \
+    seq2seq-predict
 
+    # frame-cnn-learn \
+    # frame-cnn-predict \
+    # seg-lstm-learn \
+    # seg-lstm-predict \
     # frame-lstm-learn-batch-gpu \
     # frame-lstm-learn-batch \
     # frame-lstm-res-learn \
