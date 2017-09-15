@@ -163,3 +163,6 @@ seg-lstm-predict: seg-lstm-predict.o
 seq2seq-learn: seq2seq-learn.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
 
+seq2seq-predict: seq2seq-predict.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
+
