@@ -7,7 +7,8 @@ bin = \
     frame-lstm-learn \
     frame-lstm-predict \
     seq2seq-learn \
-    seq2seq-predict
+    seq2seq-predict \
+    frame-win-cnn-learn
 
     # frame-cnn-learn \
     # frame-cnn-predict \
