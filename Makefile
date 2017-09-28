@@ -90,6 +90,9 @@ frame-cnn-predict: frame-cnn-predict.o
 frame-win-cnn-learn: frame-win-cnn-learn.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
 
+frame-win-cnn-predict: frame-win-cnn-predict.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
+
 frame-hypercolumn-learn: frame-hypercolumn-learn.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
 

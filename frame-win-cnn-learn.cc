@@ -58,7 +58,7 @@ struct learning_env {
 int main(int argc, char *argv[])
 {
     ebt::ArgumentSpec spec {
-        "frame-cnn-learn",
+        "frame-win-cnn-learn",
         "Train a CNN frame classifier",
         {
             {"frame-batch", "", true},
@@ -340,8 +340,6 @@ void learning_env::run()
             << " update: " << v2 - v1 << " rate: " << (v2 - v1) / v1 << std::endl;
 
         std::cout << std::endl;
-
-        ++nsample;
     }
 
     std::ofstream param_ofs { output_param };
