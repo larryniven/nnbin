@@ -10,7 +10,8 @@ bin = \
     seq2seq-predict \
     frame-win-cnn-learn \
     frame-win-cnn-predict \
-    frame-win-fc-autoenc-learn
+    frame-win-fc-autoenc-learn \
+    frame-win-fc-autoenc-recon
 
     # frame-cnn-learn \
     # frame-cnn-predict \
@@ -96,6 +97,9 @@ frame-win-cnn-predict: frame-win-cnn-predict.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
 
 frame-win-fc-autoenc-learn: frame-win-fc-autoenc-learn.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
+
+frame-win-fc-autoenc-recon: frame-win-fc-autoenc-recon.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
 
 frame-hypercolumn-learn: frame-hypercolumn-learn.o
