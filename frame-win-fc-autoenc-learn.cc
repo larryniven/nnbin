@@ -49,9 +49,7 @@ std::shared_ptr<autodiff::op_t> make_nn(std::shared_ptr<autodiff::op_t> input,
 
 struct learning_env {
 
-    speech::batch_indices frame_batch;
-
-    unsigned int input_channel;
+    speech::scp frame_scp;
 
     std::shared_ptr<tensor_tree::vertex> param;
 
@@ -88,9 +86,9 @@ int main(int argc, char *argv[])
 {
     ebt::ArgumentSpec spec {
         "frame-win-fc-autoenc-learn",
-        "Train a FC frame autoencoder",
+        "Train an FC frame autoencoder",
         {
-            {"frame-batch", "", true},
+            {"frame-scp", "", true},
             {"param", "", true},
             {"opt-data", "", true},
             {"output-param", "", false},
@@ -130,7 +128,7 @@ int main(int argc, char *argv[])
 learning_env::learning_env(std::unordered_map<std::string, std::string> args)
     : args(args)
 {
-    frame_batch.open(args.at("frame-batch"));
+    frame_scp.open(args.at("frame-scp"));
 
     std::ifstream param_ifs { args.at("param") };
     param = make_tensor_tree(1);
@@ -200,8 +198,8 @@ learning_env::learning_env(std::unordered_map<std::string, std::string> args)
 
     gen = std::default_random_engine { seed };
 
-    for (int i = 0; i < frame_batch.pos.size(); ++i) {
-        std::vector<std::vector<double>> frames = speech::load_frame_batch(frame_batch.at(i));
+    for (int i = 0; i < frame_scp.entries.size(); ++i) {
+        std::vector<std::vector<double>> frames = speech::load_frame_batch(frame_scp.at(i));
 
         for (int t = 0; t < frames.size(); ++t) {
             indices.push_back(std::make_pair(i, t));
@@ -232,7 +230,7 @@ void learning_env::run()
 
         while (nsample < indices.size() && loaded_samples < batch_size) {
             std::vector<std::vector<double>> frames = speech::load_frame_batch(
-                frame_batch.at(indices.at(nsample).first));
+                frame_scp.at(indices.at(nsample).first));
 
             input_dim = frames.front().size();
 
