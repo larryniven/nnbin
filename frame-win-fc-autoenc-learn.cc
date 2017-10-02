@@ -31,14 +31,26 @@ std::shared_ptr<tensor_tree::vertex> make_tensor_tree(int layer)
 }
 
 std::shared_ptr<autodiff::op_t> make_nn(std::shared_ptr<autodiff::op_t> input,
-    std::shared_ptr<tensor_tree::vertex> var_tree)
+    std::shared_ptr<tensor_tree::vertex> var_tree,
+    double input_dropout, double hidden_dropout,
+    std::default_random_engine& gen)
 {
+    if (input_dropout != 0.0) {
+        auto mask = autodiff::dropout_mask(input, input_dropout, gen);
+        input = autodiff::emul(mask, input);
+    }
+
     std::shared_ptr<autodiff::op_t> h = input;
 
     for (int i = 0; i < var_tree->children.size() - 1; ++i) {
         auto z = autodiff::mul(h, tensor_tree::get_var(var_tree->children[i]->children[0]));
         auto b = autodiff::rep_row_to(tensor_tree::get_var(var_tree->children[i]->children[1]), z);
         h = autodiff::relu(autodiff::add(z, b));
+
+        if (hidden_dropout != 0.0) {
+            auto mask = autodiff::dropout_mask(h, hidden_dropout, gen);
+            h = autodiff::emul(mask, h);
+        }
     }
 
     auto z = autodiff::mul(h, tensor_tree::get_var(var_tree->children.back()->children[0]));
@@ -60,7 +72,8 @@ struct learning_env {
 
     unsigned int win_size;
 
-    double dropout;
+    double input_dropout;
+    double hidden_dropout;
     int seed;
 
     std::string output_param;
@@ -94,7 +107,6 @@ int main(int argc, char *argv[])
             {"output-param", "", false},
             {"output-opt-data", "", false},
             {"win-size", "", true},
-            {"dropout", "", false},
             {"batch-size", "", false},
             {"seed", "", false},
             {"shuffle", "", false},
@@ -103,6 +115,8 @@ int main(int argc, char *argv[])
             {"momentum", "", false},
             {"clip", "", false},
             {"decay", "", false},
+            {"input-dropout", "", false},
+            {"hidden-dropout", "", false}
         }
     };
 
@@ -163,9 +177,14 @@ learning_env::learning_env(std::unordered_map<std::string, std::string> args)
         batch_size = std::stoi(args.at("batch-size"));
     }
 
-    dropout = 0;
-    if (ebt::in(std::string("dropout"), args)) {
-        dropout = std::stod(args.at("dropout"));
+    input_dropout = 0;
+    if (ebt::in(std::string("input-dropout"), args)) {
+        input_dropout = std::stod(args.at("input-dropout"));
+    }
+
+    hidden_dropout = 0;
+    if (ebt::in(std::string("hidden-dropout"), args)) {
+        hidden_dropout = std::stod(args.at("hidden-dropout"));
     }
 
     seed = 1;
@@ -261,7 +280,7 @@ void learning_env::run()
 
         std::shared_ptr<autodiff::op_t> input = graph.var(input_tensor);
 
-        auto pred = make_nn(input, var_tree);
+        auto pred = make_nn(input, var_tree, input_dropout, hidden_dropout, gen);
 
         auto& pred_t = autodiff::get_output<la::cpu::tensor_like<double>>(pred);
 
