@@ -259,15 +259,16 @@ void learning_env::run()
                 if (0 <= t + i - win_size / 2 && t + i - win_size / 2 < frames.size()) {
                     for (int j = 0; j < input_dim; ++j) {
                         input_tensor_vec.push_back(frames[t + i - win_size / 2][j]);
+                        gold_vec.push_back(frames[t + i - win_size / 2][j]);
                     }
                 } else {
                     for (int j = 0; j < input_dim; ++j) {
                         input_tensor_vec.push_back(0);
+                        gold_vec.push_back(0);
                     }
                 }
             }
 
-            gold_vec.insert(gold_vec.end(), frames[t].begin(), frames[t].end());
 
             ++nsample;
             ++loaded_samples;
@@ -285,7 +286,7 @@ void learning_env::run()
         auto& pred_t = autodiff::get_output<la::cpu::tensor_like<double>>(pred);
 
         la::cpu::tensor<double> gold_t { la::cpu::vector<double>(gold_vec),
-            { loaded_samples, input_dim } };
+            { loaded_samples, win_size * input_dim } };
 
         nn::l2_loss loss { gold_t, pred_t };
 

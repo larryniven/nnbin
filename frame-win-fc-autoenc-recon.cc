@@ -151,12 +151,14 @@ void prediction_env::run()
 
             auto& pred_t = autodiff::get_output<la::cpu::tensor_like<double>>(pred);
 
-            for (int i = 0; i < pred_t.vec_size(); ++i) {
+            int mid = win_size / 2 * input_dim;
+
+            for (int i = 0; i < input_dim ; ++i) {
                 if (i != 0) {
                     std::cout << " ";
                 }
 
-                std::cout << pred_t.data()[i];
+                std::cout << pred_t({0, mid + i});
             }
 
             std::cout << std::endl;
