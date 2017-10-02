@@ -45,7 +45,7 @@ std::shared_ptr<autodiff::op_t> make_nn(std::shared_ptr<autodiff::op_t> input,
     for (int i = 0; i < var_tree->children.size() - 1; ++i) {
         auto z = autodiff::mul(h, tensor_tree::get_var(var_tree->children[i]->children[0]));
         auto b = autodiff::rep_row_to(tensor_tree::get_var(var_tree->children[i]->children[1]), z);
-        h = autodiff::relu(autodiff::add(z, b));
+        h = autodiff::logistic(autodiff::add(z, b));
 
         if (hidden_dropout != 0.0) {
             auto mask = autodiff::dropout_mask(h, hidden_dropout, gen);
