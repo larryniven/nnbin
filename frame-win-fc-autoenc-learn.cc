@@ -255,19 +255,21 @@ void learning_env::run()
 
             int t = indices.at(nsample).second;
 
-            ++nsample;
-
-            if (t - (int) win_size / 2 < 0 || t + (int) win_size / 2 >= frames.size()) {
-                continue;
-            }
-
             for (int i = 0; i < win_size; ++i) {
-                for (int j = 0; j < input_dim; ++j) {
-                    input_tensor_vec.push_back(frames[t + i - (int) win_size / 2][j]);
-                    gold_vec.push_back(frames[t + i - (int) win_size / 2][j]);
+                if (0 <= t + i - (int) win_size / 2 && t + i - (int) win_size / 2 < frames.size()) {
+                    for (int j = 0; j < input_dim; ++j) {
+                        input_tensor_vec.push_back(frames[t + i - (int) win_size / 2][j]);
+                        gold_vec.push_back(frames[t + i - (int) win_size / 2][j]);
+                    }
+                } else {
+                    for (int j = 0; j < input_dim; ++j) {
+                        input_tensor_vec.push_back(0);
+                        gold_vec.push_back(0);
+                    }
                 }
             }
 
+            ++nsample;
             ++loaded_samples;
         }
 

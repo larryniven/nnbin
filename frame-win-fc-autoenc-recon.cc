@@ -38,7 +38,7 @@ std::shared_ptr<autodiff::op_t> make_nn(std::shared_ptr<autodiff::op_t> input,
     for (int i = 0; i < var_tree->children.size() - 1; ++i) {
         auto z = autodiff::mul(h, tensor_tree::get_var(var_tree->children[i]->children[0]));
         auto b = autodiff::rep_row_to(tensor_tree::get_var(var_tree->children[i]->children[1]), z);
-        h = autodiff::logistic(autodiff::add(z, b));
+        h = autodiff::relu(autodiff::add(z, b));
     }
 
     auto z = autodiff::mul(h, tensor_tree::get_var(var_tree->children.back()->children[0]));
@@ -131,9 +131,9 @@ void prediction_env::run()
             std::vector<double> input_tensor_vec;
 
             for (int i = 0; i < win_size; ++i) {
-                if (0 <= t + i - win_size / 2 && t + i - win_size / 2 < frames.size()) {
+                if (0 <= t + i - (int) win_size / 2 && t + i - (int) win_size / 2 < frames.size()) {
                     for (int j = 0; j < input_dim; ++j) {
-                        input_tensor_vec.push_back(frames[t + i - win_size / 2][j]);
+                        input_tensor_vec.push_back(frames[t + i - (int) win_size / 2][j]);
                     }
                 } else {
                     for (int j = 0; j < input_dim; ++j) {
@@ -141,6 +141,8 @@ void prediction_env::run()
                     }
                 }
             }
+
+            assert(input_tensor_vec.size() == win_size * input_dim);
 
             la::cpu::tensor<double> input_tensor { la::cpu::vector<double>(input_tensor_vec),
                 std::vector<unsigned int> { 1, win_size * input_dim }};
