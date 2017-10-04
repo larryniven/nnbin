@@ -255,7 +255,9 @@ void learning_env::run()
 
             int t = indices.at(nsample).second;
 
-            if (t - (int) win_size / 2 < 0 || t + (int) win_size / 2 > frames.size()) {
+            ++nsample;
+
+            if (t - (int) win_size / 2 < 0 || t + (int) win_size / 2 >= frames.size()) {
                 continue;
             }
 
@@ -266,13 +268,12 @@ void learning_env::run()
                 }
             }
 
-            assert(input_tensor_vec.size() == win_size * input_dim);
-
-            ++nsample;
             ++loaded_samples;
         }
 
         std::cout << "loaded samples: " << loaded_samples << std::endl;
+
+        assert(input_tensor_vec.size() == win_size * input_dim * loaded_samples);
 
         la::cpu::tensor<double> input_tensor { la::cpu::vector<double>(input_tensor_vec),
             std::vector<unsigned int> { loaded_samples, win_size * input_dim }};
