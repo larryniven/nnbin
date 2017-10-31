@@ -10,8 +10,10 @@ bin = \
     seq2seq-predict \
     frame-win-cnn-learn \
     frame-win-cnn-predict \
-    frame-win-fc-autoenc-learn \
-    frame-win-fc-autoenc-recon
+    utt-autoenc-patch-learn \
+    utt-autoenc-patch-recon \
+    utt-autoenc-lstm-learn \
+    utt-autoenc-lstm-recon
 
     # frame-cnn-learn \
     # frame-cnn-predict \
@@ -178,5 +180,17 @@ seq2seq-learn: seq2seq-learn.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
 
 seq2seq-predict: seq2seq-predict.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
+
+utt-autoenc-patch-learn: utt-autoenc-patch-learn.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
+
+utt-autoenc-patch-recon: utt-autoenc-patch-recon.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
+
+utt-autoenc-lstm-learn: utt-autoenc-lstm-learn.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
+
+utt-autoenc-lstm-recon: utt-autoenc-lstm-recon.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lspeech -lopt -lla -lebt -lblas
 
