@@ -7,7 +7,7 @@
 
 struct prediction_env {
 
-    std::ifstream frame_batch;
+    speech::scp frame_scp;
 
     int layer;
     std::shared_ptr<tensor_tree::vertex> param;
@@ -28,14 +28,12 @@ int main(int argc, char *argv[])
         "frame-lstm-predict",
         "Predict frames with LSTM",
         {
-            {"frame-batch", "", true},
+            {"frame-scp", "", true},
             {"param", "", true},
             {"label", "", true},
             {"layer", "", false},
-            {"dyer-lstm", "", false},
             {"print-logprob", "", false},
             {"print-hidden", "", false},
-            {"nsample", "", false},
         }
     };
 
@@ -61,17 +59,13 @@ int main(int argc, char *argv[])
 prediction_env::prediction_env(std::unordered_map<std::string, std::string> args)
     : args(args)
 {
-    frame_batch.open(args.at("frame-batch"));
+    frame_scp.open(args.at("frame-scp"));
 
     std::ifstream param_ifs { args.at("param") };
     std::string line;
     std::getline(param_ifs, line);
     layer = std::stoi(line);
-    if (ebt::in(std::string("dyer-lstm"), args)) {
-        param = lstm_frame::make_dyer_tensor_tree(layer);
-    } else {
-        param = lstm_frame::make_tensor_tree(layer);
-    }
+    param = lstm_frame::make_tensor_tree(layer);
     tensor_tree::load_tensor(param, param_ifs);
     param_ifs.close();
 
@@ -84,14 +78,10 @@ prediction_env::prediction_env(std::unordered_map<std::string, std::string> args
 
 void prediction_env::run()
 {
-    int nsample = 1;
+    int nsample = 0;
 
-    while (1) {
-        std::vector<std::vector<double>> frames = speech::load_frame_batch(frame_batch);
-
-        if (!frame_batch) {
-            break;
-        }
+    while (nsample < frame_scp.entries.size()) {
+        std::vector<std::vector<double>> frames = speech::load_frame_batch(frame_scp.at(nsample));
 
         autodiff::computation_graph graph;
         std::vector<double> input_vec;
@@ -109,11 +99,7 @@ void prediction_env::run()
 
         std::shared_ptr<lstm::transcriber> trans;
 
-        if (ebt::in(std::string("dyer-lstm"), args)) {
-            trans = lstm_frame::make_dyer_transcriber(param->children[0], 0.0, nullptr, false);
-        } else {
-            trans = lstm_frame::make_transcriber(param->children[0], 0.0, nullptr, false);
-        }
+        trans = lstm_frame::make_transcriber(param->children[0], 0.0, nullptr, false);
 
         lstm::trans_seq_t input_seq;
         input_seq.nframes = frames.size();
@@ -169,10 +155,6 @@ void prediction_env::run()
         }
 
         std::cout << "." << std::endl;
-
-        if (ebt::in(std::string("nsample"), args) && nsample >= std::stoi(args.at("nsample"))) {
-            break;
-        }
 
         ++nsample;
     }
