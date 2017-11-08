@@ -1,7 +1,9 @@
 #include "la/la-cpu.h"
 #include "autodiff/autodiff.h"
 #include "ebt/ebt.h"
-#include "speech/speech.h"
+#include "util/speech.h"
+#include "util/batch.h"
+#include "util/util.h"
 #include <fstream>
 #include <vector>
 #include "nn/lstm.h"
@@ -13,8 +15,8 @@
 
 struct learning_env {
 
-    speech::scp frame_scp;
-    speech::scp label_scp;
+    batch::scp frame_scp;
+    batch::scp label_scp;
 
     int layer;
     std::shared_ptr<tensor_tree::vertex> param;
@@ -122,7 +124,7 @@ learning_env::learning_env(std::unordered_map<std::string, std::string> args)
         clip = std::stod(args.at("clip"));
     }
 
-    std::vector<std::string> label_vec = speech::load_label_set(args.at("label"));
+    std::vector<std::string> label_vec = util::load_label_set(args.at("label"));
     for (int i = 0; i < label_vec.size(); ++i) {
         label_id[label_vec[i]] = i;
     }

@@ -1,5 +1,7 @@
 #include "ebt/ebt.h"
-#include "speech/speech.h"
+#include "util/speech.h"
+#include "util/batch.h"
+#include "util/util.h"
 #include "nn/lstm.h"
 #include "nn/tensor-tree.h"
 #include "nn/lstm-frame.h"
@@ -7,7 +9,7 @@
 
 struct prediction_env {
 
-    speech::scp frame_scp;
+    batch::scp frame_scp;
 
     int layer;
     std::shared_ptr<tensor_tree::vertex> param;
@@ -69,7 +71,7 @@ prediction_env::prediction_env(std::unordered_map<std::string, std::string> args
     tensor_tree::load_tensor(param, param_ifs);
     param_ifs.close();
 
-    label = speech::load_label_set(args.at("label"));
+    label = util::load_label_set(args.at("label"));
 
     if (ebt::in(std::string("layer"), args)) {
         layer = std::stoi(args.at("layer"));

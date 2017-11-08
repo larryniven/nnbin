@@ -1,7 +1,6 @@
 #include "la/la.h"
 #include "autodiff/autodiff.h"
 #include "ebt/ebt.h"
-#include "util/speech.h"
 #include "util/batch.h"
 #include "util/util.h"
 #include <fstream>
@@ -9,27 +8,59 @@
 #include "nn/nn.h"
 #include <random>
 #include "nn/tensor-tree.h"
-#include "nn/cnn.h"
-#include "nn/cnn-frame.h"
 #include <algorithm>
+
+std::vector<std::shared_ptr<autodiff::op_t>> make_fc(std::shared_ptr<autodiff::op_t> input,
+    std::shared_ptr<tensor_tree::vertex> var_tree)
+{
+    std::vector<std::shared_ptr<autodiff::op_t>> result;
+
+    std::shared_ptr<autodiff::op_t> h = input;
+
+    for (int i = 0; i < var_tree->children.size(); ++i) {
+        if (i != 0) {
+            h = autodiff::relu(h);
+        }
+
+        auto z = autodiff::mul(h, tensor_tree::get_var(var_tree->children[i]->children[0]));
+        auto b = autodiff::rep_row_to(tensor_tree::get_var(var_tree->children[i]->children[1]), z);
+
+        h = autodiff::add(z, b);
+
+        result.push_back(h);
+    }
+
+    return result;
+}
+
+std::shared_ptr<tensor_tree::vertex> make_tensor_tree(int layer)
+{
+    tensor_tree::vertex root { "nil" };
+
+    for (int i = 0; i < layer; ++i) {
+        tensor_tree::vertex ell { "nil" };
+
+        ell.children.push_back(tensor_tree::make_tensor("fc weight"));
+        ell.children.push_back(tensor_tree::make_tensor("fc bias"));
+
+        root.children.push_back(std::make_shared<tensor_tree::vertex>(ell));
+    }
+
+    return std::make_shared<tensor_tree::vertex>(root);
+}
 
 struct learning_env {
 
-    speech::batch_indices frame_batch;
-    speech::batch_indices label_batch;
+    batch::scp input_scp;
+    batch::scp label_scp;
 
-    unsigned int input_channel;
-
+    int layer;
     std::shared_ptr<tensor_tree::vertex> param;
 
     std::shared_ptr<tensor_tree::optimizer> opt;
 
-    cnn::cnn_t cnn_config;
-
     double step_size;
     double decay;
-
-    unsigned int win_size;
 
     double dropout;
     int seed;
@@ -39,15 +70,11 @@ struct learning_env {
 
     double clip;
 
-    unsigned int batch_size;
-
     std::default_random_engine gen;
 
-    std::vector<std::pair<int, int>> indices;
+    std::vector<int> indices;
 
     std::unordered_map<std::string, int> label_id;
-
-    std::unordered_set<std::string> ignored;
 
     std::unordered_map<std::string, std::string> args;
 
@@ -60,21 +87,17 @@ struct learning_env {
 int main(int argc, char *argv[])
 {
     ebt::ArgumentSpec spec {
-        "frame-win-cnn-learn",
-        "Train a CNN frame classifier",
+        "fc-learn",
+        "Train a DNN frame classifier",
         {
-            {"frame-batch", "", true},
-            {"label-batch", "", true},
-            {"input-channel", "", true},
+            {"input-scp", "", true},
+            {"label-scp", "", true},
             {"param", "", true},
             {"opt-data", "", true},
             {"output-param", "", false},
             {"output-opt-data", "", false},
-            {"win-size", "", true},
             {"label", "", true},
-            {"ignore", "", false},
             {"dropout", "", false},
-            {"batch-size", "", false},
             {"seed", "", false},
             {"shuffle", "", false},
             {"opt", "const-step,adagrad,rmsprop,adam", true},
@@ -107,17 +130,21 @@ int main(int argc, char *argv[])
 learning_env::learning_env(std::unordered_map<std::string, std::string> args)
     : args(args)
 {
-    frame_batch.open(args.at("frame-batch"));
-    label_batch.open(args.at("label-batch"));
+    input_scp.open(args.at("input-scp"));
+    label_scp.open(args.at("label-scp"));
 
-    input_channel = std::stoi(args.at("input-channel"));
-
+    std::string line;
     std::ifstream param_ifs { args.at("param") };
-    cnn_config = cnn::load_param(param_ifs);
-    param = cnn_config.param;
-    param_ifs.close();
+    if (!param_ifs) {
+        throw std::logic_error("failed to open " + args.at("param"));
+    }
 
-    win_size = std::stoi(args.at("win-size"));
+    std::getline(param_ifs, line);
+    layer = std::stoi(line);
+
+    param = make_tensor_tree(layer);
+    tensor_tree::load_tensor(param, param_ifs);
+    param_ifs.close();
 
     step_size = std::stod(args.at("step-size"));
 
@@ -143,16 +170,6 @@ learning_env::learning_env(std::unordered_map<std::string, std::string> args)
     std::vector<std::string> label_vec = util::load_label_set(args.at("label"));
     for (int i = 0; i < label_vec.size(); ++i) {
         label_id[label_vec[i]] = i;
-    }
-
-    if (ebt::in(std::string("ignore"), args)) {
-        auto parts = ebt::split(args.at("ignore"), ",");
-        ignored.insert(parts.begin(), parts.end());
-    }
-
-    batch_size = 1;
-    if (ebt::in(std::string("batch-size"), args)) {
-        batch_size = std::stoi(args.at("batch-size"));
     }
 
     dropout = 0;
@@ -185,17 +202,19 @@ learning_env::learning_env(std::unordered_map<std::string, std::string> args)
     }
 
     std::ifstream opt_data_ifs { args.at("opt-data") };
+    if (!opt_data_ifs) {
+        throw std::logic_error("failed to open " + args.at("opt-data"));
+    }
+
     opt->load_opt_data(opt_data_ifs);
     opt_data_ifs.close();
 
     gen = std::default_random_engine { seed };
 
-    for (int i = 0; i < label_batch.pos.size(); ++i) {
-        std::vector<std::string> labels = speech::load_label_batch(label_batch.at(i));
+    indices.resize(input_scp.entries.size());
 
-        for (int t = 0; t < labels.size(); ++t) {
-            indices.push_back(std::make_pair(i, t));
-        }
+    for (int i = 0; i < indices.size(); ++i) {
+        indices[i] = i;
     }
 
     if (ebt::in(std::string("shuffle"), args)) {
@@ -210,66 +229,31 @@ void learning_env::run()
     int nsample = 0;
 
     while (nsample < indices.size()) {
+        std::vector<double> raw_input = batch::load_feats(input_scp.at(indices.at(nsample)));
+
+	std::string label = batch::load_label(label_scp.at(indices.at(nsample)));
+
+        std::cout << "sample: " << nsample << std::endl;
+
         autodiff::computation_graph graph;
         std::shared_ptr<tensor_tree::vertex> var_tree = tensor_tree::make_var_tree(graph, param);
 
-        std::vector<double> input_tensor_vec;
-        std::vector<double> gold_vec;
-
-        unsigned int input_dim = 0;
-        unsigned int loaded_sample = 0;
-        while (nsample < indices.size() && loaded_sample < batch_size) {
-            std::vector<std::vector<double>> frames = speech::load_frame_batch(
-                frame_batch.at(indices.at(nsample).first));
-
-	    std::vector<std::string> labels = speech::load_label_batch(
-                label_batch.at(indices.at(nsample).first));
-
-            assert(frames.size() == labels.size());
-
-            input_dim = frames.front().size() / input_channel;
-
-            int t = indices.at(nsample).second;
-
-            ++nsample;
-
-            if (ebt::in(labels[t], ignored)) {
-                continue;
-            }
-
-            for (int i = 0; i < win_size; ++i) {
-                if (0 <= t + i - win_size / 2 && t + i - win_size / 2 < frames.size()) {
-                    for (int j = 0; j < frames.front().size(); ++j) {
-                        input_tensor_vec.push_back(frames[t + i - win_size / 2][j]);
-                    }
-                } else {
-                    for (int j = 0; j < frames.front().size(); ++j) {
-                        input_tensor_vec.push_back(0);
-                    }
-                }
-            }
-
-            for (int i = 0; i < label_id.size(); ++i) {
-                gold_vec.push_back((i == label_id.at(labels[t]) ? 1 : 0));
-            }
-
-            ++loaded_sample;
-        }
-
-        std::cout << "loaded sample: " << loaded_sample << std::endl;
-
-        la::cpu::tensor<double> input_tensor { la::cpu::vector<double>(input_tensor_vec),
-            std::vector<unsigned int> { loaded_sample, win_size, input_dim, input_channel }};
-
-        la::cpu::tensor<double> gold { la::cpu::vector<double>(gold_vec),
-            std::vector<unsigned int> { loaded_sample, (unsigned int) label_id.size() }};
+        la::cpu::tensor<double> input_tensor { la::cpu::vector<double> { raw_input } };
 
         std::shared_ptr<autodiff::op_t> input = graph.var(input_tensor);
 
-        std::shared_ptr<cnn::transcriber> trans = cnn::make_transcriber(cnn_config, dropout, &gen);
-        std::shared_ptr<autodiff::op_t> logprob = (*trans)(var_tree, input);
+        auto layers = make_fc(input, var_tree);
 
+        auto logprob = autodiff::logsoftmax(layers.back());
+
+        std::vector<double> gold_vec;
+        gold_vec.resize(label_id.size());
+        gold_vec[label_id.at(label)] = 1;
+
+        la::cpu::weak_tensor<double> gold { gold_vec.data(),
+            { (unsigned int) label_id.size() }};
         auto& pred = autodiff::get_output<la::cpu::tensor_like<double>>(logprob);
+
         nn::log_loss loss { gold, pred };
 
         logprob->grad = std::make_shared<la::cpu::tensor<double>>(loss.grad());
@@ -281,40 +265,19 @@ void learning_env::run()
             exit(1);
         }
 
-        std::cout << "loss: " << ell / loaded_sample << std::endl;
+        std::cout << "loss: " << ell << std::endl;
 
         auto topo_order = autodiff::natural_topo_order(graph);
         autodiff::guarded_grad(topo_order, autodiff::grad_funcs);
 
-        std::shared_ptr<tensor_tree::vertex> grad = cnn::make_tensor_tree(cnn_config);
+        std::shared_ptr<tensor_tree::vertex> grad = make_tensor_tree(layer);
         tensor_tree::copy_grad(grad, var_tree);
 
-#if 0
-        {
-            std::shared_ptr<tensor_tree::vertex> param2 = tensor_tree::deep_copy(param);
-            la::cpu::tensor<double>& t = tensor_tree::get_tensor(param2->children[0]->children[0]);
-            t({0, 0, 0, 0}) += 1e-8;
-
-            autodiff::computation_graph graph2;
-            auto var_tree2 = tensor_tree::make_var_tree(graph2, param2);
-            std::shared_ptr<autodiff::op_t> input2 = graph2.var(input_tensor);
-
-            std::shared_ptr<cnn::transcriber> trans2 = cnn::make_transcriber(cnn_config, dropout, &gen);
-            std::shared_ptr<autodiff::op_t> logprob2 = (*trans)(var_tree2, input2);
-
-            auto& pred2 = autodiff::get_output<la::cpu::tensor_like<double>>(logprob2);
-            nn::log_loss loss2 { gold, pred2 };
-
-            double ell2 = loss2.loss();
-
-            std::cout << "numeric grad: " << (ell2 - ell) / 1e-8 << std::endl;
-
-            la::cpu::tensor<double>& grad_t = tensor_tree::get_tensor(grad->children[0]->children[0]);
-            std::cout << "analytic grad: " << grad_t({0, 0, 0, 0}) << std::endl;
-        }
-#endif
-
-        tensor_tree::imul(grad, 1.0 / loaded_sample);
+        // auto& h_t = autodiff::get_grad<la::cpu::tensor_like<double>>(layers[0]);
+        // for (int i = 0; i < h_t.vec_size(); ++i) {
+        //     std::cout << h_t.data()[i] << " ";
+        // }
+        // std::cout << std::endl;
 
         double n = tensor_tree::norm(grad);
 
@@ -327,9 +290,7 @@ void learning_env::run()
             }
         }
 
-        std::vector<std::shared_ptr<tensor_tree::vertex>> vars
-            = tensor_tree::leaves_pre_order(param);
-
+        std::vector<std::shared_ptr<tensor_tree::vertex>> vars = tensor_tree::leaves_pre_order(param);
         la::cpu::tensor<double> const& v = tensor_tree::get_tensor(vars.front());
 
         double v1 = v.data()[0];
@@ -342,10 +303,13 @@ void learning_env::run()
             << " update: " << v2 - v1 << " rate: " << (v2 - v1) / v1 << std::endl;
 
         std::cout << std::endl;
+
+        ++nsample;
     }
 
     std::ofstream param_ofs { output_param };
-    cnn::save_param(cnn_config, param_ofs);
+    param_ofs << layer << std::endl;
+    tensor_tree::save_tensor(param, param_ofs);
     param_ofs.close();
 
     std::ofstream opt_data_ofs { output_opt_data };

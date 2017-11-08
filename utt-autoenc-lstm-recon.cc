@@ -1,7 +1,9 @@
 #include "la/la.h"
 #include "autodiff/autodiff.h"
 #include "ebt/ebt.h"
-#include "speech/speech.h"
+#include "util/speech.h"
+#include "util/batch.h"
+#include "util/util.h"
 #include "nn/nn.h"
 #include "nn/tensor-tree.h"
 #include "nn/lstm.h"
@@ -72,7 +74,7 @@ make_transcriber(
 
 struct prediction_env {
 
-    speech::scp frame_scp;
+    batch::scp frame_scp;
 
     int layer;
     std::shared_ptr<tensor_tree::vertex> param;

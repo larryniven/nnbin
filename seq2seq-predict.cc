@@ -1,4 +1,6 @@
-#include "speech/speech.h"
+#include "util/speech.h"
+#include "util/batch.h"
+#include "util/util.h"
 #include <fstream>
 #include "ebt/ebt.h"
 #include "nn/lstm-frame.h"
@@ -68,7 +70,7 @@ prediction_env::prediction_env(std::unordered_map<std::string, std::string> args
     tensor_tree::load_tensor(param, param_ifs);
     param_ifs.close();
 
-    id_label = speech::load_label_set(args.at("label"));
+    id_label = util::load_label_set(args.at("label"));
     for (int i = 0; i < id_label.size(); ++i) {
         label_id[id_label[i]] = i;
     }
