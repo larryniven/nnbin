@@ -195,7 +195,7 @@ void learning_env::run()
 
         std::vector<std::vector<double>> frames = speech::load_frame_batch(frame_scp.at(indices[nsample]));
 
-	std::vector<std::string> labels = speech::load_label_batch(label_scp.at(indices[nsample]));
+	std::vector<std::string> labels = speech::load_label_seq_batch(label_scp.at(indices[nsample]));
 
         std::cout << "frames: " << frames.size() << std::endl;
         std::cout << "labels: " << labels.size() << std::endl;
