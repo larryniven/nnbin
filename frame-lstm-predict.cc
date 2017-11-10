@@ -152,8 +152,14 @@ void prediction_env::run()
                     }
                 }
 
-                std::cout << label[argmax] << std::endl;
+                if (t != 0) {
+                    std::cout << " ";
+                }
+
+                std::cout << label[argmax];
             }
+
+            std::cout << std::endl;
         }
 
         std::cout << "." << std::endl;
