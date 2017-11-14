@@ -15,30 +15,57 @@ std::vector<std::shared_ptr<autodiff::op_t>> make_autoenc(std::shared_ptr<autodi
 {
     std::vector<std::shared_ptr<autodiff::op_t>> result;
 
-    auto z = autodiff::mul(input, tensor_tree::get_var(var_tree->children[0]));
-    auto b = autodiff::rep_row_to(tensor_tree::get_var(var_tree->children[1]), z);
+    std::shared_ptr<autodiff::op_t> h = input;
 
-    auto h = autodiff::relu(autodiff::add(z, b));
+    for (int i = 0; i < var_tree->children[0]->children.size(); ++i) {
+        auto z = autodiff::mul(h, tensor_tree::get_var(
+            var_tree->children[0]->children[i]->children[0]));
+        auto b = autodiff::rep_row_to(tensor_tree::get_var(
+            var_tree->children[0]->children[i]->children[1]), z);
+        h = autodiff::relu(autodiff::add(z, b));
 
-    result.push_back(h);
+        result.push_back(h);
+    }
 
-    auto z2 = autodiff::rtmul(h, tensor_tree::get_var(var_tree->children[0]));
-    auto b2 = autodiff::rep_row_to(tensor_tree::get_var(var_tree->children[2]), z2);
+    for (int i = 0; i < var_tree->children[1]->children.size(); ++i) {
+        auto z = autodiff::mul(h, tensor_tree::get_var(
+            var_tree->children[1]->children[i]->children[0]));
+        auto b = autodiff::rep_row_to(tensor_tree::get_var(
+            var_tree->children[1]->children[i]->children[1]), z);
 
-    auto recon = autodiff::add(z2, b2);
+        h = autodiff::add(z, b);
 
-    result.push_back(recon);
+        if (i != var_tree->children[1]->children.size() - 1) {
+            h = autodiff::relu(h);
+        }
+
+        result.push_back(h);
+    }
 
     return result;
 }
 
-std::shared_ptr<tensor_tree::vertex> make_tensor_tree()
+std::shared_ptr<tensor_tree::vertex> make_tensor_tree(int layer)
 {
     tensor_tree::vertex root { "nil" };
 
-    root.children.push_back(tensor_tree::make_tensor("encoder weight"));
-    root.children.push_back(tensor_tree::make_tensor("encoder bias"));
-    root.children.push_back(tensor_tree::make_tensor("decoder bias"));
+    tensor_tree::vertex encoder { "nil" };
+    for (int i = 0; i < layer; ++i) {
+        tensor_tree::vertex ell { "nil" };
+        ell.children.push_back(tensor_tree::make_tensor("encoder weight"));
+        ell.children.push_back(tensor_tree::make_tensor("encoder bias"));
+        encoder.children.push_back(std::make_shared<tensor_tree::vertex>(ell));
+    }
+    root.children.push_back(std::make_shared<tensor_tree::vertex>(encoder));
+
+    tensor_tree::vertex decoder { "nil" };
+    for (int i = 0; i < layer; ++i) {
+        tensor_tree::vertex ell { "nil" };
+        ell.children.push_back(tensor_tree::make_tensor("decoder weight"));
+        ell.children.push_back(tensor_tree::make_tensor("decoder bias"));
+        decoder.children.push_back(std::make_shared<tensor_tree::vertex>(ell));
+    }
+    root.children.push_back(std::make_shared<tensor_tree::vertex>(decoder));
 
     return std::make_shared<tensor_tree::vertex>(root);
 }
@@ -46,7 +73,6 @@ std::shared_ptr<tensor_tree::vertex> make_tensor_tree()
 struct learning_env {
 
     batch::scp input_scp;
-    batch::scp label_scp;
 
     int layer;
     std::shared_ptr<tensor_tree::vertex> param;
@@ -67,8 +93,6 @@ struct learning_env {
     std::default_random_engine gen;
 
     std::vector<int> indices;
-
-    std::unordered_map<std::string, int> label_id;
 
     std::unordered_map<std::string, std::string> args;
 
@@ -128,8 +152,11 @@ learning_env::learning_env(std::unordered_map<std::string, std::string> args)
     if (!param_ifs) {
         throw std::logic_error("failed to open " + args.at("param"));
     }
+    std::string line;
+    std::getline(param_ifs, line);
+    layer = std::stoi(line);
 
-    param = make_tensor_tree();
+    param = make_tensor_tree(layer);
     tensor_tree::load_tensor(param, param_ifs);
     param_ifs.close();
 
@@ -244,7 +271,7 @@ void learning_env::run()
         auto topo_order = autodiff::natural_topo_order(graph);
         autodiff::guarded_grad(topo_order, autodiff::grad_funcs);
 
-        std::shared_ptr<tensor_tree::vertex> grad = make_tensor_tree();
+        std::shared_ptr<tensor_tree::vertex> grad = make_tensor_tree(layer);
         tensor_tree::copy_grad(grad, var_tree);
 
         double n = tensor_tree::norm(grad);
@@ -276,6 +303,7 @@ void learning_env::run()
     }
 
     std::ofstream param_ofs { output_param };
+    param_ofs << layer << std::endl;
     tensor_tree::save_tensor(param, param_ofs);
     param_ofs.close();
 
