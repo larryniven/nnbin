@@ -8,6 +8,7 @@ bin = \
     fc-predict \
     fc-autoenc \
     fc-recon \
+    fc-vae \
     frame-lstm-learn \
     frame-lstm-predict \
     seq2seq-learn \
@@ -70,6 +71,9 @@ fc-autoenc: fc-autoenc.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lutil -lopt -lla -lebt -lblas
 
 fc-recon: fc-recon.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lutil -lopt -lla -lebt -lblas
+
+fc-vae: fc-vae.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lutil -lopt -lla -lebt -lblas
 
 frame-lstm-learn: frame-lstm-learn.o
