@@ -115,8 +115,6 @@ std::shared_ptr<tensor_tree::vertex> make_tensor_tree(int layer)
     tensor_tree::vertex dec_mean_var { "nil" };
     dec_mean_var.children.push_back(tensor_tree::make_tensor("decoder mean weight"));
     dec_mean_var.children.push_back(tensor_tree::make_tensor("decoder mean bias"));
-    dec_mean_var.children.push_back(tensor_tree::make_tensor("decoder variance weight"));
-    dec_mean_var.children.push_back(tensor_tree::make_tensor("decoder variance bias"));
     decoder.children.push_back(std::make_shared<tensor_tree::vertex>(dec_mean_var));
 
     root.children.push_back(std::make_shared<tensor_tree::vertex>(decoder));
