@@ -126,7 +126,7 @@ void prediction_env::run()
 
         std::shared_ptr<autodiff::op_t> output = output_seq.feat;
 
-        std::cout << nsample << ".phn" << std::endl;
+        std::cout << frame_scp.entries[nsample].key << std::endl;
 
         auto& output_t = autodiff::get_output<la::cpu::tensor_like<double>>(output);
 
