@@ -311,7 +311,7 @@ void learning_env::run()
 
         if (ebt::in(std::string("clip"), args)) {
             if (n > clip) {
-                tensor_tree::imul(grad, clip / n);
+                tensor_tree::axpy(grad, clip / n, grad);
                 std::cout << "gradient clipped" << std::endl;
             }
         }

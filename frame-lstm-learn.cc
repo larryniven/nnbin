@@ -282,11 +282,11 @@ void learning_env::run()
         std::shared_ptr<tensor_tree::vertex> grad = lstm_frame::make_tensor_tree(layer);
         tensor_tree::copy_grad(grad, var_tree);
 
-        tensor_tree::iadd(accu_grad, grad);
+        tensor_tree::axpy(accu_grad, 1, grad);
 
         if (nsample % batch_size == batch_size - 1) {
 
-            tensor_tree::imul(accu_grad, 1.0 / batch_size);
+            tensor_tree::axpy(accu_grad, 1.0 / batch_size, accu_grad);
 
             double n = tensor_tree::norm(accu_grad);
 
@@ -294,7 +294,7 @@ void learning_env::run()
 
             if (ebt::in(std::string("clip"), args)) {
                 if (n > clip) {
-                    tensor_tree::imul(accu_grad, clip / n);
+                    tensor_tree::axpy(accu_grad, clip / n, accu_grad);
                     std::cout << "gradient clipped" << std::endl;
                 }
             }

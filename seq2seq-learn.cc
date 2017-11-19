@@ -304,7 +304,7 @@ void learning_env::run()
 
             if (ebt::in(std::string("clip"), args)) {
                 if (grad_norm > clip) {
-                    tensor_tree::imul(param_grad, clip / grad_norm);
+                    tensor_tree::axpy(param_grad, clip / grad_norm, param_grad);
 
                     std::cout << "clip: " << clip << " gradient clipped" << std::endl;
                 }
