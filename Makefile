@@ -1,4 +1,4 @@
-CXXFLAGS += -std=c++14 -I .. -L ../ebt -L ../la -L ../opt -L ../autodiff -L ../nn -L ../util
+CXXFLAGS += -std=c++11 -I .. -L ../ebt -L ../la -L ../opt -L ../autodiff -L ../nn -L ../util
 NVCCFLAGS += -std=c++11 -I .. -L ../ebt -L ../la -L ../opt -L ../autodiff -L ../nn -L ../util
 
 .PHONY: all clean
@@ -55,8 +55,12 @@ bin = \
     # rsg-predict \
     # rsg-loss
 
+gpubin = \
+    frame-lstm-learn-gpu
 
 all: $(bin)
+
+gpu: $(gpubin)
 
 clean:
 	-rm *.o
@@ -89,11 +93,17 @@ frame-lstm-predict: frame-lstm-predict.o
 frame-lstm-learn-batch: frame-lstm-learn-batch.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lutil -lopt -lla -lebt -lblas
 
+frame-lstm-learn-gpu.o: frame-lstm-learn-gpu.cu
+	nvcc $(NVCCFLAGS) -c frame-lstm-learn-gpu.cu
+
+frame-lstm-learn-gpu: frame-lstm-learn-gpu.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lnngpu -lautodiffgpu -lutil -loptgpu -llagpu -lebt -lblas -lcublas -lcudart
+
 frame-lstm-learn-batch-gpu.o: frame-lstm-learn-batch-gpu.cu
 	nvcc $(NVCCFLAGS) -c frame-lstm-learn-batch-gpu.cu
 
 frame-lstm-learn-batch-gpu: frame-lstm-learn-batch-gpu.o
-	$(CXX) $(CXXFLAGS) -L /opt/cuda/lib64 -o $@ $^ -lnngpu -lautodiffgpu -lutil -loptgpu -llagpu -lebt -lblas -lcublas -lcuda -lcudart
+	$(CXX) $(CXXFLAGS) -L /opt/cuda/lib64 -o $@ $^ -lnngpu -lautodiffgpu -loptgpu -llagpu -lutil -lebt -lblas -lcublas -lcuda -lcudart
 
 frame-lstm-res-learn: frame-lstm-res-learn.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lutil -lopt -lla -lebt -lblas

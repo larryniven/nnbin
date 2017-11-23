@@ -7,11 +7,24 @@
 #include <fstream>
 #include <vector>
 #include "nn/lstm.h"
+#include "nn/lstm-tensor-tree.h"
 #include "nn/nn.h"
 #include <random>
 #include "nn/tensor-tree.h"
 #include "nn/lstm-frame.h"
 #include <algorithm>
+
+// std::shared_ptr<tensor_tree::vertex> make_tensor_tree()
+// {
+//     tensor_tree::vertex root { "nil" };
+//     root.children.push_back(lstm::lstm_tensor_tree_factory{}());
+//     tensor_tree::vertex fc { "nil" };
+//     fc.children.push_back(tensor_tree::make_tensor("softmax weight"));
+//     fc.children.push_back(tensor_tree::make_tensor("softmax bias"));
+//     root.children.push_back(std::make_shared<tensor_tree::vertex>(fc));
+// 
+//     return std::make_shared<tensor_tree::vertex>(root);
+// }
 
 struct learning_env {
 
@@ -104,6 +117,9 @@ learning_env::learning_env(std::unordered_map<std::string, std::string> args)
     std::getline(param_ifs, line);
     layer = std::stoi(line);
     param = lstm_frame::make_tensor_tree(layer);
+
+    // param = make_tensor_tree();
+
     tensor_tree::load_tensor(param, param_ifs);
     param_ifs.close();
 
@@ -203,6 +219,8 @@ void learning_env::run()
         assert(frames.size() == labels.size());
 
         autodiff::computation_graph graph;
+        graph.eval_funcs = autodiff::eval_funcs;
+        graph.grad_funcs = autodiff::grad_funcs;
 
         std::vector<double> input_cat;
         input_cat.reserve(frames.size() * frames.front().size());
@@ -219,9 +237,6 @@ void learning_env::run()
 
         std::shared_ptr<tensor_tree::vertex> var_tree = tensor_tree::make_var_tree(graph, param);
 
-        std::shared_ptr<lstm::transcriber> trans = lstm_frame::make_transcriber(
-            param->children[0], dropout, &gen, false);
-
         lstm::trans_seq_t input_seq;
         input_seq.nframes = frames.size();
         input_seq.batch_size = batch_size;
@@ -229,7 +244,13 @@ void learning_env::run()
         input_seq.feat = input;
         input_seq.mask = nullptr;
 
+        std::shared_ptr<lstm::transcriber> trans = lstm_frame::make_transcriber(
+            param->children[0], dropout, &gen, false);
+
         lstm::trans_seq_t feat_seq = (*trans)(var_tree->children[0], input_seq);
+
+        // lstm::lstm_transcriber trans { 128, false };
+        // lstm::trans_seq_t feat_seq = trans(var_tree->children[0], input_seq);
 
         lstm::fc_transcriber fc_trans { (int) label_id.size() };
         lstm::logsoftmax_transcriber logsoftmax_trans;
@@ -266,27 +287,20 @@ void learning_env::run()
         std::cout << "E: " << ell / nframes << std::endl;
 
         auto topo_order = autodiff::natural_topo_order(graph);
+
         autodiff::guarded_grad(topo_order, autodiff::grad_funcs);
 
-#if 0
-        auto& t = autodiff::get_grad<la::cpu::tensor_like<double>>(trans1->debug);
-        for (int i = 0; i < t.size(0); ++i) {
-            for (int j = 0; j < t.size(1); ++j) {
-                std::cout << t({i, j}) << " ";
-            }
-            std::cout << std::endl;
-        }
-        std::cout << std::endl;
-#endif
-
         std::shared_ptr<tensor_tree::vertex> grad = lstm_frame::make_tensor_tree(layer);
+
+        // std::shared_ptr<tensor_tree::vertex> grad = make_tensor_tree();
+
         tensor_tree::copy_grad(grad, var_tree);
 
         tensor_tree::axpy(accu_grad, 1, grad);
 
         if (nsample % batch_size == batch_size - 1) {
 
-            tensor_tree::axpy(accu_grad, 1.0 / batch_size, accu_grad);
+            tensor_tree::axpy(accu_grad, 1.0 / batch_size - 1, accu_grad);
 
             double n = tensor_tree::norm(accu_grad);
 
@@ -294,7 +308,7 @@ void learning_env::run()
 
             if (ebt::in(std::string("clip"), args)) {
                 if (n > clip) {
-                    tensor_tree::axpy(accu_grad, clip / n, accu_grad);
+                    tensor_tree::axpy(accu_grad, clip / n - 1, accu_grad);
                     std::cout << "gradient clipped" << std::endl;
                 }
             }
