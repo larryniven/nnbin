@@ -9,8 +9,6 @@
 #include <algorithm>
 #include "nn/nn.h"
 
-using namespace std::string_literals;
-
 struct learning_env {
 
     speech::batch_indices frame_batch;
@@ -130,7 +128,7 @@ learning_env::learning_env(std::unordered_map<std::string, std::string> args)
 
     gen = std::default_random_engine { seed };
 
-    if (ebt::in("random-state"s, args)) {
+    if (ebt::in(std::string("random-state"), args)) {
         std::istringstream iss { args.at("random-state") };
         iss >> gen;
     }
