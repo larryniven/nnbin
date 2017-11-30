@@ -86,6 +86,7 @@ void prediction_env::run()
         std::vector<std::vector<double>> frames = speech::load_frame_batch(frame_scp.at(nsample));
 
         autodiff::computation_graph graph;
+
         std::vector<double> input_vec;
         input_vec.reserve(frames.size() * frames.front().size());
 

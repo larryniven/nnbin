@@ -219,8 +219,6 @@ void learning_env::run()
         assert(frames.size() == labels.size());
 
         autodiff::computation_graph graph;
-        graph.eval_funcs = autodiff::eval_funcs;
-        graph.grad_funcs = autodiff::grad_funcs;
 
         std::vector<double> input_cat;
         input_cat.reserve(frames.size() * frames.front().size());
