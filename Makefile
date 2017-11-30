@@ -228,3 +228,6 @@ utt-autoenc-lstm-learn: utt-autoenc-lstm-learn.o
 utt-autoenc-lstm-recon: utt-autoenc-lstm-recon.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lutil -lopt -lla -lebt -lblas
 
+enhance-lstm-learn: enhance-lstm-learn.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lutil -lopt -lla -lebt -lblas
+
