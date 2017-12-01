@@ -198,7 +198,7 @@ void learning_env::run()
 
         std::shared_ptr<autodiff::op_t> input = graph.var(
             la::cpu::tensor<double>(la::cpu::weak_vector<double>(input_cat.data(), input_cat.size()),
-            { (unsigned int) noisy_frames.size(), (unsigned int) noisy_frames.front().size() }));
+            { (unsigned int) noisy_frames.size(), 1, (unsigned int) noisy_frames.front().size() }));
 
         input->grad_needed = false;
 
@@ -216,21 +216,34 @@ void learning_env::run()
 
         lstm::trans_seq_t feat_seq = (*trans)(var_tree->children[0], input_seq);
 
-        lstm::fc_transcriber fc_trans { (int) clean_frames.front().size() };
+        lstm::fc_transcriber fc_trans { (int) noisy_frames.front().size() };
         auto output_seq = fc_trans(var_tree->children[1], feat_seq);
 
         std::shared_ptr<autodiff::op_t> output = output_seq.feat;
+        auto& pred = autodiff::get_output<la::cpu::tensor_like<double>>(output);
 
         std::vector<double> gold_vec;
-        gold_vec.resize(clean_frames.size() * clean_frames.front().size());
+        gold_vec.reserve(clean_frames.size() * clean_frames.front().size());
 
         for (int i = 0; i < clean_frames.size(); ++i) {
             gold_vec.insert(gold_vec.end(), clean_frames[i].begin(), clean_frames[i].end());
         }
 
         la::cpu::weak_tensor<double> gold { gold_vec.data(),
-            {(unsigned int) clean_frames.size(), (unsigned int) clean_frames.front().size()}};
-        auto& pred = autodiff::get_output<la::cpu::tensor_like<double>>(output);
+            {(unsigned int) clean_frames.size(), 1, (unsigned int) clean_frames.front().size()}};
+
+        std::cout << "first frame pred: ";
+        for (int j = 0; j < 10; ++j) {
+            std::cout << pred({0, 0, j}) << " ";
+        }
+        std::cout << std::endl;
+
+        std::cout << "first frame gold: ";
+        for (int j = 0; j < 10; ++j) {
+            std::cout << gold({0, 0, j}) << " ";
+        }
+        std::cout << std::endl;
+
         nn::l2_loss loss { gold, pred };
 
         output->grad = std::make_shared<la::cpu::tensor<double>>(loss.grad());

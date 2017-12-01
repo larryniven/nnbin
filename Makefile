@@ -19,7 +19,9 @@ bin = \
     utt-autoenc-patch-learn \
     utt-autoenc-patch-recon \
     utt-autoenc-lstm-learn \
-    utt-autoenc-lstm-recon
+    utt-autoenc-lstm-recon \
+    enhance-lstm-learn \
+    enhance-lstm-predict
 
     # frame-cnn-learn \
     # frame-cnn-predict \
@@ -64,7 +66,7 @@ gpu: $(gpubin)
 
 clean:
 	-rm *.o
-	-rm $(bin)
+	-rm $(bin) $(gpubin)
 
 fc-learn: fc-learn.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lutil -lopt -lla -lebt -lblas
@@ -229,5 +231,8 @@ utt-autoenc-lstm-recon: utt-autoenc-lstm-recon.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lutil -lopt -lla -lebt -lblas
 
 enhance-lstm-learn: enhance-lstm-learn.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lutil -lopt -lla -lebt -lblas
+
+enhance-lstm-predict: enhance-lstm-predict.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lutil -lopt -lla -lebt -lblas
 
