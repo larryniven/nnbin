@@ -24,7 +24,7 @@ tdnn_spec read_spec(std::istream& is)
 
     std::string line;
 
-    while (std::getline(is, line)) {
+    while (std::getline(is, line) && line != "#") {
         std::vector<std::string> parts = ebt::split(line);
 
         std::vector<int> strides;
@@ -62,12 +62,10 @@ std::shared_ptr<tensor_tree::vertex> make_tensor_tree(
         tensor_tree::vertex ell { "nil" };
 
         for (int j = 0; j < spec.layers[i].size(); ++j) {
-            tensor_tree::vertex t { "nil" };
-            t.children.push_back(tensor_tree::make_tensor("weight"));
-            t.children.push_back(tensor_tree::make_tensor("bias"));
-            ell.children.push_back(std::make_shared<tensor_tree::vertex>(t));
+            ell.children.push_back(tensor_tree::make_tensor("weight"));
         }
 
+        ell.children.push_back(tensor_tree::make_tensor("bias"));
         root.children.push_back(std::make_shared<tensor_tree::vertex>(ell));
     }
 
@@ -107,15 +105,12 @@ std::shared_ptr<autodiff::op_t> make_tdnn(
         std::vector<std::shared_ptr<autodiff::op_t>> hiddens;
         std::vector<std::vector<std::shared_ptr<autodiff::op_t>>> hidden_vecs;
 
-        auto b_param = tensor_tree::get_var(var_tree->children[i]->children.front()->children.back());
+        auto b_param = tensor_tree::get_var(var_tree->children[i]->children.back());
         unsigned int dim = autodiff::get_output<la::tensor_like<double>>(b_param).size(0);
 
         for (int j = 0; j < spec.layers[i].size(); ++j) {
-            auto z = autodiff::mul(feat, tensor_tree::get_var(
-                var_tree->children[i]->children[j]->children[0]));
-            auto b = autodiff::rep_row_to(tensor_tree::get_var(
-                var_tree->children[i]->children[j]->children[1]), z);
-            auto h = autodiff::add(z, b);
+            auto h = autodiff::mul(feat, tensor_tree::get_var(
+                var_tree->children[i]->children[j]));
 
             hiddens.push_back(h);
             hidden_vecs.push_back(split_frames(h, nframes, dim));
@@ -143,7 +138,9 @@ std::shared_ptr<autodiff::op_t> make_tdnn(
             outputs.push_back(autodiff::add_to(storage_vecs[t], vecs));
         }
 
-        feat = autodiff::weak_cat(outputs, storage);
+        auto b = autodiff::rep_row_to(b_param, storage);
+
+        feat = autodiff::relu(autodiff::add(autodiff::weak_cat(outputs, storage), b));
     }
 
     auto z = autodiff::mul(feat, tensor_tree::get_var(
@@ -446,6 +443,7 @@ void learning_env::run()
 
     std::ofstream param_ofs { output_param };
     write_spec(spec, param_ofs);
+    param_ofs << "#" << std::endl;
     tensor_tree::save_tensor(param, param_ofs);
     param_ofs.close();
 
