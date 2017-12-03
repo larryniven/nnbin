@@ -48,7 +48,7 @@ struct learning_env {
 int main(int argc, char *argv[])
 {
     ebt::ArgumentSpec spec {
-        "frame-lstm-learn",
+        "enhance-lstm-learn",
         "Train a LSTM frame classifier",
         {
             {"clean-scp", "", true},
