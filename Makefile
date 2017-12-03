@@ -10,6 +10,7 @@ bin = \
     fc-recon \
     fc-vae \
     fc-vae-recon \
+    frame-tdnn-learn \
     frame-lstm-learn \
     frame-lstm-predict \
     seq2seq-learn \
