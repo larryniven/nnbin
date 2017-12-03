@@ -86,6 +86,9 @@ fc-vae: fc-vae.o
 fc-vae-recon: fc-vae-recon.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lutil -lopt -lla -lebt -lblas
 
+frame-tdnn-learn: frame-tdnn-learn.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lutil -lopt -lla -lebt -lblas
+
 frame-lstm-learn: frame-lstm-learn.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lutil -lopt -lla -lebt -lblas
 
