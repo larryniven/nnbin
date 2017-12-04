@@ -90,6 +90,12 @@ fc-vae-recon: fc-vae-recon.o
 frame-tdnn-learn: frame-tdnn-learn.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lutil -lopt -lla -lebt -lblas
 
+frame-tdnn-learn-gpu.o: frame-tdnn-learn-gpu.cu
+	nvcc $(NVCCFLAGS) -c frame-tdnn-learn-gpu.cu
+
+frame-tdnn-learn-gpu: frame-tdnn-learn-gpu.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lnngpu -lautodiffgpu -lutil -loptgpu -llagpu -lebt -lblas -lcublas -lcudart
+
 frame-lstm-learn: frame-lstm-learn.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lutil -lopt -lla -lebt -lblas
 
