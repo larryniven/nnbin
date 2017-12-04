@@ -1,5 +1,6 @@
 #include "la/la-cpu.h"
 #include "autodiff/autodiff.h"
+#include "nn/tensor-tree.h"
 #include "ebt/ebt.h"
 #include "util/speech.h"
 #include "util/batch.h"
@@ -10,7 +11,6 @@
 #include "nn/lstm-tensor-tree.h"
 #include "nn/nn.h"
 #include <random>
-#include "nn/tensor-tree.h"
 #include "nn/lstm-frame.h"
 #include <algorithm>
 
@@ -349,7 +349,7 @@ void learning_env::run()
         }
 
         std::shared_ptr<autodiff::op_t> input = graph.var(
-            la::cpu::tensor<double>(la::cpu::weak_vector<double>(input_cat.data(), input_cat.size()),
+            la::cpu::weak_tensor<double>(input_cat.data(),
             { (unsigned int) frames.size(), (unsigned int) frames.front().size() }));
 
         input->grad_needed = false;
