@@ -41,13 +41,13 @@ tdnn_spec read_spec(std::istream& is)
 
 void write_spec(tdnn_spec const& spec, std::ostream& os)
 {
-    for (int i = 0; spec.layers.size(); ++i) {
+    for (int i = 0; i < spec.layers.size(); ++i) {
         for (int j = 0; j < spec.layers[i].size(); ++j) {
             if (j != 0) {
                 os << " ";
             }
 
-            os << j;
+            os << spec.layers[i][j];
         }
         os << std::endl;
     }
@@ -452,6 +452,7 @@ void learning_env::run()
     std::ofstream param_ofs { output_param };
     write_spec(spec, param_ofs);
     param_ofs << "#" << std::endl;
+    tensor_tree::gpu::to_host(param);
     tensor_tree::save_tensor(param, param_ofs);
     param_ofs.close();
 
