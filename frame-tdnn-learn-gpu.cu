@@ -226,6 +226,8 @@ int main(int argc, char *argv[])
 
     env.run();
 
+    std::cout << accu_timer<0>::msecs.count() / 1.0e6 / 60.0 << " min" << std::endl;
+
     return 0;
 }
 
