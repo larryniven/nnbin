@@ -332,8 +332,6 @@ void learning_env::run()
         std::cout << "sample: " << nsample << std::endl;
         std::cout << "index: " << indices[nsample] << std::endl;
 
-        la::gpu::device::get_mem_pool().status();
-
         std::vector<std::vector<double>> frames = speech::load_frame_batch(
             frame_scp.at(indices[nsample]));
 
@@ -405,8 +403,6 @@ void learning_env::run()
         tensor_tree::copy_grad(grad, var_tree);
 
         tensor_tree::gpu::axpy(accu_grad, 1, grad);
-
-        la::gpu::device::get_mem_pool().status();
 
         if (nsample % batch_size == batch_size - 1) {
 

@@ -59,7 +59,8 @@ bin = \
     # rsg-loss
 
 gpubin = \
-    frame-lstm-learn-gpu
+    frame-lstm-learn-gpu \
+    frame-tdnn-learn-gpu
 
 all: $(bin)
 
