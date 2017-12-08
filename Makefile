@@ -60,7 +60,8 @@ bin = \
 
 gpubin = \
     frame-lstm-learn-gpu \
-    frame-tdnn-learn-gpu
+    frame-tdnn-learn-gpu \
+    enhance-tdnn-learn-gpu
 
 all: $(bin)
 
@@ -246,4 +247,10 @@ enhance-lstm-learn: enhance-lstm-learn.o
 
 enhance-lstm-predict: enhance-lstm-predict.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lutil -lopt -lla -lebt -lblas
+
+enhance-tdnn-learn-gpu.o: enhance-tdnn-learn-gpu.cu
+	nvcc $(NVCCFLAGS) -c enhance-tdnn-learn-gpu.cu
+
+enhance-tdnn-learn-gpu: enhance-tdnn-learn-gpu.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lnngpu -lautodiffgpu -lutil -loptgpu -llagpu -lebt -lblas -lcublas -lcudart
 

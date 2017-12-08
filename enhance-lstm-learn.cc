@@ -16,8 +16,8 @@
 
 struct learning_env {
 
-    batch::scp noisy_scp;
-    batch::scp clean_scp;
+    batch::scp input_scp;
+    batch::scp target_scp;
 
     int layer;
     std::shared_ptr<tensor_tree::vertex> param;
@@ -51,8 +51,8 @@ int main(int argc, char *argv[])
         "enhance-lstm-learn",
         "Train a LSTM frame classifier",
         {
-            {"clean-scp", "", true},
-            {"noisy-scp", "", true},
+            {"input-scp", "", true},
+            {"target-scp", "", true},
             {"param", "", true},
             {"opt-data", "", true},
             {"output-param", "", false},
@@ -90,8 +90,8 @@ int main(int argc, char *argv[])
 learning_env::learning_env(std::unordered_map<std::string, std::string> args)
     : args(args)
 {
-    clean_scp.open(args.at("clean-scp"));
-    noisy_scp.open(args.at("noisy-scp"));
+    input_scp.open(args.at("input-scp"));
+    target_scp.open(args.at("target-scp"));
 
     std::string line;
 
@@ -155,7 +155,7 @@ learning_env::learning_env(std::unordered_map<std::string, std::string> args)
     opt->load_opt_data(opt_data_ifs);
     opt_data_ifs.close();
 
-    indices.resize(clean_scp.entries.size());
+    indices.resize(input_scp.entries.size());
 
     for (int i = 0; i < indices.size(); ++i) {
         indices[i] = i;
@@ -179,35 +179,35 @@ void learning_env::run()
         std::cout << "sample: " << nsample << std::endl;
         std::cout << "index: " << indices[nsample] << std::endl;
 
-        std::vector<std::vector<double>> clean_frames = speech::load_frame_batch(clean_scp.at(indices[nsample]));
-        std::vector<std::vector<double>> noisy_frames = speech::load_frame_batch(noisy_scp.at(indices[nsample]));
+        std::vector<std::vector<double>> input_frames = speech::load_frame_batch(input_scp.at(indices[nsample]));
+        std::vector<std::vector<double>> target_frames = speech::load_frame_batch(target_scp.at(indices[nsample]));
 
-        std::cout << "clean frames: " << clean_frames.size() << std::endl;
-        std::cout << "noisy frames: " << noisy_frames.size() << std::endl;
+        std::cout << "input frames: " << input_frames.size() << std::endl;
+        std::cout << "target frames: " << target_frames.size() << std::endl;
 
-        assert(clean_frames.size() == noisy_frames.size());
+        assert(input_frames.size() == target_frames.size());
 
         autodiff::computation_graph graph;
 
         std::vector<double> input_cat;
-        input_cat.reserve(noisy_frames.size() * noisy_frames.front().size());
+        input_cat.reserve(input_frames.size() * input_frames.front().size());
 
-        for (int i = 0; i < noisy_frames.size(); ++i) {
-            input_cat.insert(input_cat.end(), noisy_frames[i].begin(), noisy_frames[i].end());
+        for (int i = 0; i < input_frames.size(); ++i) {
+            input_cat.insert(input_cat.end(), input_frames[i].begin(), input_frames[i].end());
         }
 
         std::shared_ptr<autodiff::op_t> input = graph.var(
             la::cpu::tensor<double>(la::cpu::weak_vector<double>(input_cat.data(), input_cat.size()),
-            { (unsigned int) noisy_frames.size(), 1, (unsigned int) noisy_frames.front().size() }));
+            { (unsigned int) input_frames.size(), 1, (unsigned int) input_frames.front().size() }));
 
         input->grad_needed = false;
 
         std::shared_ptr<tensor_tree::vertex> var_tree = tensor_tree::make_var_tree(graph, param);
 
         lstm::trans_seq_t input_seq;
-        input_seq.nframes = noisy_frames.size();
+        input_seq.nframes = input_frames.size();
         input_seq.batch_size = batch_size;
-        input_seq.dim = noisy_frames.front().size();
+        input_seq.dim = input_frames.front().size();
         input_seq.feat = input;
         input_seq.mask = nullptr;
 
@@ -216,21 +216,21 @@ void learning_env::run()
 
         lstm::trans_seq_t feat_seq = (*trans)(var_tree->children[0], input_seq);
 
-        lstm::fc_transcriber fc_trans { (int) noisy_frames.front().size() };
+        lstm::fc_transcriber fc_trans { (int) input_frames.front().size() };
         auto output_seq = fc_trans(var_tree->children[1], feat_seq);
 
         std::shared_ptr<autodiff::op_t> output = output_seq.feat;
         auto& pred = autodiff::get_output<la::cpu::tensor_like<double>>(output);
 
         std::vector<double> gold_vec;
-        gold_vec.reserve(clean_frames.size() * clean_frames.front().size());
+        gold_vec.reserve(target_frames.size() * target_frames.front().size());
 
-        for (int i = 0; i < clean_frames.size(); ++i) {
-            gold_vec.insert(gold_vec.end(), clean_frames[i].begin(), clean_frames[i].end());
+        for (int i = 0; i < target_frames.size(); ++i) {
+            gold_vec.insert(gold_vec.end(), target_frames[i].begin(), target_frames[i].end());
         }
 
         la::cpu::weak_tensor<double> gold { gold_vec.data(),
-            {(unsigned int) clean_frames.size(), 1, (unsigned int) clean_frames.front().size()}};
+            {(unsigned int) target_frames.size(), 1, (unsigned int) target_frames.front().size()}};
 
         std::cout << "first frame pred: ";
         for (int j = 0; j < 10; ++j) {
@@ -255,7 +255,7 @@ void learning_env::run()
         }
 
         std::cout << "loss: " << ell / batch_size << std::endl;
-        std::cout << "E: " << ell / clean_frames.size() << std::endl;
+        std::cout << "E: " << ell / target_frames.size() << std::endl;
 
         auto topo_order = autodiff::natural_topo_order(graph);
 

@@ -152,8 +152,8 @@ std::shared_ptr<autodiff::op_t> make_tdnn(
 
 struct learning_env {
 
-    batch::scp frame_scp;
-    batch::scp label_scp;
+    batch::scp input_scp;
+    batch::scp target_scp;
 
     tdnn_spec spec;
     std::shared_ptr<tensor_tree::vertex> param;
@@ -172,10 +172,6 @@ struct learning_env {
     std::vector<int> indices;
 
     std::default_random_engine gen;
-
-    std::unordered_map<std::string, int> label_id;
-
-    std::unordered_set<std::string> ignored;
 
     std::unordered_map<std::string, std::string> args;
 
@@ -197,8 +193,6 @@ int main(int argc, char *argv[])
             {"opt-data", "", true},
             {"output-param", "", false},
             {"output-opt-data", "", false},
-            {"label", "", true},
-            {"ignore", "", false},
             {"dropout", "", false},
             {"shuffle", "", false},
             {"seed", "", false},
@@ -263,16 +257,6 @@ learning_env::learning_env(std::unordered_map<std::string, std::string> args)
         clip = std::stod(args.at("clip"));
     }
 
-    std::vector<std::string> label_vec = util::load_label_set(args.at("label"));
-    for (int i = 0; i < label_vec.size(); ++i) {
-        label_id[label_vec[i]] = i;
-    }
-
-    if (ebt::in(std::string("ignore"), args)) {
-        auto parts = ebt::split(args.at("ignore"), ",");
-        ignored.insert(parts.begin(), parts.end());
-    }
-
     dropout = 0;
     if (ebt::in(std::string("dropout"), args)) {
         dropout = std::stod(args.at("dropout"));
@@ -308,7 +292,7 @@ learning_env::learning_env(std::unordered_map<std::string, std::string> args)
     opt->load_opt_data(opt_data_ifs);
     opt_data_ifs.close();
 
-    indices.resize(frame_scp.entries.size());
+    indices.resize(input_scp.entries.size());
 
     for (int i = 0; i < indices.size(); ++i) {
         indices[i] = i;
@@ -337,6 +321,9 @@ void learning_env::run()
 
         std::vector<std::vector<double>> target_frames = speech::load_frame_batch(
             target_scp.at(indices[nsample]));
+
+        std::cout << "input frames: " << input_frames.size() << std::endl;
+        std::cout << "target frames: " << target_frames.size() << std::endl;
 
         assert(input_frames.size() == target_frames.size());
 
@@ -383,7 +370,7 @@ void learning_env::run()
         }
 
         std::cout << "loss: " << ell / batch_size << std::endl;
-        std::cout << "E: " << ell / nframes << std::endl;
+        std::cout << "E: " << ell / input_frames.size() << std::endl;
 
         auto topo_order = autodiff::natural_topo_order(graph);
 
