@@ -78,6 +78,7 @@ std::shared_ptr<autodiff::op_t> make_tdnn(
     int nframes)
 {
     std::shared_ptr<autodiff::op_t> feat = input;
+    autodiff::computation_grpah& graph = *(input->graph);
 
     for (int i = 0; i < spec.layers.size(); ++i) {
 
@@ -100,7 +101,10 @@ std::shared_ptr<autodiff::op_t> make_tdnn(
             hidden_vecs.push_back(vecs);
         }
 
-        auto storage = autodiff::resize_as(hiddens.front());
+        la::gpu::tensor<double> t;
+        t.resize({(unsigned int) nframes, dim});
+
+        auto storage = graph.var(t);
         std::vector<std::shared_ptr<autodiff::op_t>> storage_vecs
             = split_frames(storage, nframes, dim);
 

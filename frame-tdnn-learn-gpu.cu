@@ -60,11 +60,7 @@ std::shared_ptr<tensor_tree::vertex> make_tensor_tree(
 
     for (int i = 0; i < spec.layers.size(); ++i) {
         tensor_tree::vertex ell { "nil" };
-
-        for (int j = 0; j < spec.layers[i].size(); ++j) {
-            ell.children.push_back(tensor_tree::make_tensor("weight"));
-        }
-
+        ell.children.push_back(tensor_tree::make_tensor("weight"));
         ell.children.push_back(tensor_tree::make_tensor("bias"));
         root.children.push_back(std::make_shared<tensor_tree::vertex>(ell));
     }
@@ -99,24 +95,33 @@ std::shared_ptr<autodiff::op_t> make_tdnn(
     int nframes)
 {
     std::shared_ptr<autodiff::op_t> feat = input;
+    autodiff::computation_graph& graph = *(input->graph);
 
     for (int i = 0; i < spec.layers.size(); ++i) {
 
-        std::vector<std::shared_ptr<autodiff::op_t>> hiddens;
-        std::vector<std::vector<std::shared_ptr<autodiff::op_t>>> hidden_vecs;
-
-        auto b_param = tensor_tree::get_var(var_tree->children[i]->children.back());
+        auto b_param = tensor_tree::get_var(var_tree->children[i]->children[1]);
         unsigned int dim = autodiff::get_output<la::tensor_like<double>>(b_param).size(0);
 
-        for (int j = 0; j < spec.layers[i].size(); ++j) {
-            auto h = autodiff::mul(feat, tensor_tree::get_var(
-                var_tree->children[i]->children[j]));
+        auto h = autodiff::mul(feat, tensor_tree::get_var(
+            var_tree->children[i]->children[0]));
 
-            hiddens.push_back(h);
-            hidden_vecs.push_back(split_frames(h, nframes, dim));
+        std::vector<std::vector<std::shared_ptr<autodiff::op_t>>> hidden_vecs;
+
+        for (int j = 0; j < spec.layers[i].size(); ++j) {
+            std::vector<std::shared_ptr<autodiff::op_t>> vecs;
+
+            for (int t = 0; t < nframes; ++t) {
+                int shift = t * spec.layers[i].size() * dim + j * dim;
+                vecs.push_back(weak_var(h, shift, {dim}));
+            }
+
+            hidden_vecs.push_back(vecs);
         }
 
-        auto storage = autodiff::resize_as(hiddens.front());
+        la::gpu::tensor<double> t;
+        t.resize({(unsigned int) nframes, dim});
+
+        auto storage = graph.var(t);
         std::vector<std::shared_ptr<autodiff::op_t>> storage_vecs
             = split_frames(storage, nframes, dim);
 
