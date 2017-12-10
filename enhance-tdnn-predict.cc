@@ -1,7 +1,7 @@
-#include "la/la-gpu.h"
-#include "autodiff/autodiff-gpu.h"
-#include "nn/tensor-tree-gpu.h"
-#include "nn/nn-gpu.h"
+#include "la/la.h"
+#include "autodiff/autodiff.h"
+#include "nn/tensor-tree.h"
+#include "nn/nn.h"
 #include "ebt/ebt.h"
 #include "util/speech.h"
 #include "util/batch.h"
@@ -34,20 +34,6 @@ tdnn_spec read_spec(std::istream& is)
     }
 
     return tdnn_spec { result };
-}
-
-void write_spec(tdnn_spec const& spec, std::ostream& os)
-{
-    for (int i = 0; i < spec.layers.size(); ++i) {
-        for (int j = 0; j < spec.layers[i].size(); ++j) {
-            if (j != 0) {
-                os << " ";
-            }
-
-            os << spec.layers[i][j];
-        }
-        os << std::endl;
-    }
 }
 
 std::shared_ptr<tensor_tree::vertex> make_tensor_tree(
