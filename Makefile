@@ -22,7 +22,8 @@ bin = \
     utt-autoenc-lstm-learn \
     utt-autoenc-lstm-recon \
     enhance-lstm-learn \
-    enhance-lstm-predict
+    enhance-lstm-predict \
+    enhance-tdnn-predict
 
     # frame-cnn-learn \
     # frame-cnn-predict \
@@ -253,4 +254,7 @@ enhance-tdnn-learn-gpu.o: enhance-tdnn-learn-gpu.cu
 
 enhance-tdnn-learn-gpu: enhance-tdnn-learn-gpu.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnngpu -lautodiffgpu -lutil -loptgpu -llagpu -lebt -lblas -lcublas -lcudart
+
+enhance-tdnn-predict: enhance-tdnn-predict.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lutil -lopt -lla -lebt -lblas
 

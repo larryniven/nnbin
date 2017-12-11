@@ -115,10 +115,7 @@ std::shared_ptr<autodiff::op_t> make_tdnn(
             hidden_vecs.push_back(vecs);
         }
 
-        la::gpu::tensor<double> t;
-        t.resize({(unsigned int) nframes, dim});
-
-        auto storage = graph.var(t);
+        auto storage = autodiff::zeros(graph, {(unsigned int) nframes, dim});
         std::vector<std::shared_ptr<autodiff::op_t>> storage_vecs
             = split_frames(storage, nframes, dim);
 
