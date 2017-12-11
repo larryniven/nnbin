@@ -11,6 +11,7 @@ bin = \
     fc-vae \
     fc-vae-recon \
     frame-tdnn-learn \
+    frame-tdnn-predict \
     frame-lstm-learn \
     frame-lstm-predict \
     seq2seq-learn \
@@ -98,6 +99,9 @@ frame-tdnn-learn-gpu.o: frame-tdnn-learn-gpu.cu
 
 frame-tdnn-learn-gpu: frame-tdnn-learn-gpu.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnngpu -lautodiffgpu -lutil -loptgpu -llagpu -lebt -lblas -lcublas -lcudart
+
+frame-tdnn-predict: frame-tdnn-predict.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lutil -lopt -lla -lebt -lblas
 
 frame-lstm-learn: frame-lstm-learn.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lnn -lautodiff -lutil -lopt -lla -lebt -lblas
